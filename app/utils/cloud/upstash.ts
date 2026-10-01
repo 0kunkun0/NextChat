@@ -65,15 +65,19 @@ export function createUpstashClient(store: SyncStore) {
     },
 
     async set(_: string, value: string) {
-      // upstash limit the max request size which is 1Mb for “Free” and “Pay as you go”
-      // so we need to split the data to chunks
+      if (!value || value.length == 0) {
+        console.warn("[Upstash] set called with empty value, skip");
+        return;
+      }
       let index = 0;
       for await (const chunk of chunks(value)) {
+        console.log("[Upstash] writing chunk", index, "len =", chunk.length);
         await this.redisSet(chunkIndexKey(index), chunk);
         index += 1;
       }
+      console.log("[Upstash] writing chunk count =", index);
       await this.redisSet(chunkCountKey, index.toString());
-    },
+    }
 
     headers() {
       return {
@@ -106,5 +110,23 @@ export function createUpstashClient(store: SyncStore) {
 
       return url;
     },
+    async download() {
+      const raw = await this.get();
+      console.log("[Upstash] download raw =", raw);
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw);
+      }
+      catch (e) {
+        console.error("[Upstash] download parse failed," e);
+        return null;
+      }
+    },
+    async upload(state: any) {
+      const raw = JSON.stringify(state);
+      console.log("[Upstash] upload size =", raw.length);
+      await this.set("", raw);
+      console.log("[Upstash] upload done");
+    }
   };
 }

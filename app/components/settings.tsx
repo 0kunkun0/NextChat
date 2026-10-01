@@ -89,6 +89,8 @@ import { useMaskStore } from "../store/mask";
 import { ProviderType } from "../utils/cloud";
 import { TTSConfigList } from "./tts-config";
 import { RealtimeConfigList } from "./realtime-chat/realtime-config";
+import { createUpstashClient } from "../utils/cloud/upstash";
+import { getLocalAppState } from "../utils/sync";
 
 function EditPromptModal(props: { id: string; onClose: () => void }) {
   const promptStore = usePromptStore();
@@ -532,19 +534,31 @@ function SyncItems() {
               }}
             />
             {couldSync && (
-              <IconButton
-                icon={<ResetIcon />}
-                text={Locale.UI.Sync}
-                onClick={async () => {
-                  try {
-                    await syncStore.sync();
-                    showToast(Locale.Settings.Sync.Success);
-                  } catch (e) {
-                    showToast(Locale.Settings.Sync.Fail);
-                    console.error("[Sync]", e);
-                  }
-                }}
-              />
+              <>
+                <IconButton
+                  icon={<UploadIcon />}
+                  text="upload"
+                  onClick={async () => {
+                    try {
+                      const client = createUpstashClient(syncStore);
+                      const local = getLocalAppState();
+                      await client.upload(local);
+                      showToast("Upload Success");
+                    } catch (e) {
+                      showToast("Upload failed");
+                      console.error("[Upload]", e);
+                    }
+                  }}
+                />
+                <IconButton
+                  icon={<DownloadIcon />}
+                  text="download"
+                  onClick={async () => {
+                    try {
+                      const client
+                    }
+                  }}
+              </>
             )}
           </div>
         </ListItem>
