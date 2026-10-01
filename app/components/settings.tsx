@@ -90,7 +90,7 @@ import { ProviderType } from "../utils/cloud";
 import { TTSConfigList } from "./tts-config";
 import { RealtimeConfigList } from "./realtime-chat/realtime-config";
 import { createUpstashClient } from "../utils/cloud/upstash";
-import { getLocalAppState } from "../utils/sync";
+import { getLocalAppState, setLocalAppState } from "../utils/sync";
 
 function EditPromptModal(props: { id: string; onClose: () => void }) {
   const promptStore = usePromptStore();
