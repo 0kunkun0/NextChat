@@ -561,7 +561,7 @@ function SyncItems() {
                       showToast("云端暂无数据");
                       return;
                     }
-                    setLocalAppState(remote);
+                    getLocalAppState(remote);
                     showToast("下载成功");
                   } catch (e) {
                     showToast("下载失败");
