@@ -658,7 +658,7 @@ export function ChatActions(props: {
           icon={<MaskIcon />}
         />
 
-        <ChatAction
+        {/*<ChatAction
           text={Locale.Chat.InputActions.Clear}
           icon={<BreakIcon />}
           onClick={() => {
@@ -671,7 +671,7 @@ export function ChatActions(props: {
               }
             });
           }}
-        />
+        />*/}
 
         <ChatAction
           onClick={() => setShowModelSelector(true)}
@@ -1073,11 +1073,11 @@ function _Chat() {
     newm: () => navigate(Path.NewChat),
     prev: () => chatStore.nextSession(-1),
     next: () => chatStore.nextSession(1),
-    clear: () =>
+    {/*clear: () =>
       chatStore.updateTargetSession(
         session,
         (session) => (session.clearContextIndex = session.messages.length),
-      ),
+      ),*/}
     fork: () => chatStore.forkSession(),
     del: () => chatStore.deleteSession(chatStore.currentSessionIndex),
   });
@@ -1652,6 +1652,7 @@ function _Chat() {
         event.preventDefault();
         setShowShortcutKeyModal(true);
       }
+      {/*
       // 清除上下文 command + shift + backspace
       else if (
         (event.metaKey || event.ctrlKey) &&
@@ -1667,7 +1668,7 @@ function _Chat() {
             session.memoryPrompt = ""; // will clear memory
           }
         });
-      }
+      }*/}
     };
 
     document.addEventListener("keydown", handleKeyDown);
