@@ -118,7 +118,7 @@ export function createUpstashClient(store: SyncStore) {
         return JSON.parse(raw);
       }
       catch (e) {
-        console.error("[Upstash] download parse failed," e);
+        console.error("[Upstash] download parse failed", e);
         return null;
       }
     },
