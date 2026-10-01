@@ -49,6 +49,10 @@ export function createUpstashClient(store: SyncStore) {
       });
 
       console.log("[Upstash] set key = ", key, res.status, res.statusText);
+      if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Upstash set failed: ${res.status} ${text}`);
+        }
     },
 
     async get() {
