@@ -1,7 +1,4 @@
 import { useState, useEffect, useMemo } from "react";
-import { useSyncStore } from "../store/sync";
-import { createUpstashClient } from "../utils/cloud/upstash";
-import { getLocalAppState, setLocalAppState } from "../utils/sync";
 
 import styles from "./settings.module.scss";
 

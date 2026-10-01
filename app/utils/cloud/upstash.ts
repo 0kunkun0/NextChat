@@ -77,7 +77,7 @@ export function createUpstashClient(store: SyncStore) {
       }
       console.log("[Upstash] writing chunk count =", index);
       await this.redisSet(chunkCountKey, index.toString());
-    }
+    },
 
     headers() {
       return {
