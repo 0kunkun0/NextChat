@@ -555,7 +555,7 @@ function SyncItems() {
                   text="download"
                   onClick={async () => {
                     try {
-                      const client
+                      const 
                     }
                   }}
               </>
