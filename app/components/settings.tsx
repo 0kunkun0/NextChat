@@ -1,4 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
+import { useSyncStore } from "../store/sync";
+import { createUpstashClient } from "../utils/cloud/upstash";
+import { getLocalAppState, setLocalAppState } from "../utils/sync";
 
 import styles from "./settings.module.scss";
 
@@ -535,31 +538,42 @@ function SyncItems() {
             />
             {couldSync && (
               <>
-                <IconButton
-                  icon={<UploadIcon />}
-                  text="upload"
-                  onClick={async () => {
-                    try {
-                      const client = createUpstashClient(syncStore);
-                      const local = getLocalAppState();
-                      await client.upload(local);
-                      showToast("Upload Success");
-                    } catch (e) {
-                      showToast("Upload failed");
-                      console.error("[Upload]", e);
+              <IconButton
+                icon={<UploadIcon />}
+                text="上传"
+                onClick={async () => {
+                  try {
+                    const client = createUpstashClient(syncStore);
+                    const local = getLocalAppState();
+                    await client.upload(local);
+                    showToast("上传成功");
+                  } catch (e) {
+                    showToast("上传失败");
+                    console.error("[Upload]", e);
+                  }
+                }}
+              />
+              <IconButton
+                icon={<DownloadIcon />}
+                text="下载"
+                onClick={async () => {
+                  try {
+                    const client = createUpstashClient(syncStore);
+                    const remote = await client.download();
+                    if (!remote) {
+                      showToast("云端暂无数据");
+                      return;
                     }
-                  }}
-                />
-                <IconButton
-                  icon={<DownloadIcon />}
-                  text="download"
-                  onClick={async () => {
-                    try {
-                      const 
-                    }
-                  }}
-              </>
-            )}
+                    setLocalAppState(remote);
+                    showToast("下载成功");
+                  } catch (e) {
+                    showToast("下载失败");
+                    console.error("[Download]", e);
+                  }
+                }}
+              />
+            </>
+          )}
           </div>
         </ListItem>
 
