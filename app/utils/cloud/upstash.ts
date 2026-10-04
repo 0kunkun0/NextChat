@@ -89,6 +89,12 @@ export function createUpstashClient(store: SyncStore) {
       };
     },
     path(path: string, proxyUrl: string = "") {
+      const cleanEndpoint = config.endpoint.replace(/\/+$/, "");
+
+      if (proxyUrl.length > 0) {
+        proxyUrl = proxyUrl.replace(/\/+$/, "") + "/";
+      }
+
       if (!path.endsWith("/")) {
         path += "/";
       }
@@ -96,20 +102,15 @@ export function createUpstashClient(store: SyncStore) {
         path = path.slice(1);
       }
 
-      if (proxyUrl.length > 0 && !proxyUrl.endsWith("/")) {
-        proxyUrl += "/";
-      }
-
       let url;
       const pathPrefix = "/api/upstash/";
 
       try {
         let u = new URL(proxyUrl + pathPrefix + path);
-        // add query params
-        u.searchParams.append("endpoint", config.endpoint);
+        u.searchParams.append("endpoint", cleanEndpoint);
         url = u.toString();
       } catch (e) {
-        url = pathPrefix + path + "?endpoint=" + config.endpoint;
+        url = pathPrefix + path + "?endpoint=" + cleanEndpoint;
       }
 
       return url;
