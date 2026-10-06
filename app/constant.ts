@@ -477,6 +477,7 @@ export const DEFAULT_TTS_VOICES = [
 
 export const VISION_MODEL_REGEXES = [
   /vision/,
+  /deepseek/,
   /gpt-4o/,
   /gpt-4\.1/,
   /claude.*[34]/,
