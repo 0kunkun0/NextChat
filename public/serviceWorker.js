@@ -16,28 +16,41 @@ self.addEventListener("install", function (event) {
 });
 
 function jsonify(data) {
-  return new Response(JSON.stringify(data), { headers: { 'content-type': 'application/json' } })
+  return new Response(JSON.stringify(data), {
+    headers: {
+      'content-type': 'application/json',
+      'access-control-allow-origin': '*',
+      'access-control-allow-credentials': 'true',
+    }
+  })
 }
 
 async function upload(request, url) {
-  const formData = await request.formData()
-  const file = formData.getAll('file')[0]
-  let ext = file.name.split('.').pop()
-  if (ext === 'blob') {
-    ext = file.type.split('/').pop()
-  }
-  const fileUrl = `${url.origin}/api/cache/${nanoid()}.${ext}`
-  // console.debug('file', file, fileUrl, request)
-  const cache = await caches.open(CHATGPT_NEXT_WEB_FILE_CACHE)
-  await cache.put(new Request(fileUrl), new Response(file, {
-    headers: {
-      'content-type': file.type,
-      'content-length': file.size,
-      'cache-control': 'no-cache', // file already store in disk
-      'server': 'ServiceWorker',
+  try {
+    const formData = await request.formData();
+    const file = formData.getAll('file')[0];
+    console.log("[SW] upload called, file =", file);  // 看这里
+    if (!file) {
+      return jsonify({ code: -1, error: "no file in formData" });
     }
-  }))
-  return jsonify({ code: 0, data: fileUrl })
+    let ext = file.name.split('.').pop();
+    if (ext === 'blob') {
+      ext = file.type.split('/').pop();
+    }
+    const fileUrl = `${url.origin}/api/cache/${nanoid()}.${ext}`;
+    const cache = await caches.open(CHATGPT_NEXT_WEB_FILE_CACHE);
+    await cache.put(new Request(fileUrl), new Response(file, {
+      headers: {
+        'content-type': file.type || 'application/octet-stream',
+        'content-length': String(file.size),
+        'cache-control': 'no-cache',
+        'server': 'ServiceWorker',
+      }
+    }));
+    return jsonify({ code: 0, data: fileUrl });
+  } catch (e) {
+    return jsonify({ code: -1, error: String(e), stack: e.stack });
+  }
 }
 
 async function remove(request, url) {

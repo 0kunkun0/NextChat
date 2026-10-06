@@ -153,8 +153,8 @@ export function uploadImage(file: Blob): Promise<string> {
   return fetch(UPLOAD_URL, {
     method: "post",
     body,
-    mode: "cors",
-    credentials: "include",
+    // mode: "cors",
+    // credentials: "include",
   })
     .then((res) => res.json())
     .then((res) => {
