@@ -1579,7 +1579,7 @@ function _Chat() {
                 }
               })
               .catch((e) => {
-                alert("Error:", e.message);
+                alert(`Error: ${e.message}`);
                 setUploading(false);
                 rej(e);
               });
