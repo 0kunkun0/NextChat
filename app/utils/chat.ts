@@ -143,6 +143,7 @@ export function base64Image2Blob(base64Data: string, contentType: string) {
 }
 
 export function uploadImage(file: Blob): Promise<string> {
+  window.__SW_ENABLED = false;   // 强制走压缩模式，绕开 SW
   alert("app/utils/chat.ts uploadImage called");
   if (!window._SW_ENABLED) {
     // if serviceWorker register error, using compressImage
