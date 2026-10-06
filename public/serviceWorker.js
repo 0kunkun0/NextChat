@@ -27,6 +27,10 @@ function jsonify(data) {
 
 async function upload(request, url) {
   try {
+    const ct = request.headers.get('content-type') || '(none)';
+    const bodyUsed = request.bodyUsed;
+    const hasBody = !!request.body;
+
     const formData = await request.formData();
     const file = formData.getAll('file')[0];
     console.log("[SW] upload called, file =", file);
@@ -51,9 +55,15 @@ async function upload(request, url) {
   } catch (e) {
       return jsonify({ 
         code: -1, 
-        error: e.message,        // 真正信息
-        name: e.name,            // "TypeError"
-        stack: e.stack,          // 调用栈，能看出哪一行
+        error: e.message,
+        name: e.name,
+        stack: e.stack,
+        debug: {
+          contentType: request.headers.get('content-type'),
+          bodyUsed: request.bodyUsed,
+          hasBody: !!request.body,
+          method: request.method,
+        }
       });
 }
 }
