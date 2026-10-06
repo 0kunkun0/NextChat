@@ -4,6 +4,7 @@ import {
   REQUEST_TIMEOUT_MS,
 } from "@/app/constant";
 import { MultimodalContent, RequestMessage } from "@/app/client/api";
+import { showToast } from "@/app/components/ui-lib";
 import Locale from "@/app/locales";
 import {
   EventStreamContentType,
