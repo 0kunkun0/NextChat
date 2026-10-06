@@ -163,7 +163,7 @@ export function uploadImage(file: Blob): Promise<string> {
       if (res?.code == 0 && res?.data) {
         return res?.data;
       }
-      throw new Error(`upload Error: ${res?.error} | name=${res?.name} | stack=${res?.stack}`);
+      throw new Error(`upload Error: ${res?.error} | name=${res?.name} | stack=${res?.stack} | debug=${res?.debug}`);
     });
 }
 
