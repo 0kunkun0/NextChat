@@ -26,11 +26,17 @@ function jsonify(data) {
 }
 
 async function upload(request, url) {
+  const cloned = request.clone();
+  let ct = "(unknown)";
+  let bodyUsed = "(unknown)";
+  let hasBody = false;
   try {
-    const ct = request.headers.get('content-type') || '(none)';
-    const bodyUsed = request.bodyUsed;
-    const hasBody = !!request.body;
+    ct = cloned.headers.get('content-type') || '(none)';
+    bodyUsed = cloned.bodyUsed;
+    hasBody = !!cloned.body;
+  } catch (e) {}
 
+  try {
     const formData = await request.formData();
     const file = formData.getAll('file')[0];
     console.log("[SW] upload called, file =", file);
@@ -74,7 +80,7 @@ async function remove(request, url) {
   return jsonify({ code: 0 })
 }
 
-self.addEventListener("fetch", (e) => {
+/* self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (/^\/api\/cache/.test(url.pathname)) {
     if ('GET' == e.request.method) {
@@ -85,6 +91,26 @@ self.addEventListener("fetch", (e) => {
     }
     if ('DELETE' == e.request.method) {
       e.respondWith(remove(e.request, url))
+    }
+  }
+}); */
+
+self.addEventListener("fetch", (e) => {
+  const url = new URL(e.request.url);
+  if (/^\/api\/cache/.test(url.pathname)) {
+    if ('POST' == e.request.method) {
+      // 直接返回 debug 信息，不发请求
+      e.respondWith(new Response(JSON.stringify({
+        code: -1,
+        error: "debug only",
+        debug: {
+          contentType: e.request.headers.get('content-type'),
+          bodyUsed: e.request.bodyUsed,
+          hasBody: !!e.request.body,
+          url: e.request.url,
+        }
+      }), { headers: { 'content-type': 'application/json' } }));
+      return;
     }
   }
 });
