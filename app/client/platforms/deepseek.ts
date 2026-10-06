@@ -1,5 +1,6 @@
 "use client";
 // azure and openai, using same models. so using same LLMApi.
+import { preProcessImageContent } from "@/app/utils/chat";
 import { ApiPath, DEEPSEEK_BASE_URL, DeepSeek } from "@/app/constant";
 import {
   useAccessStore,
@@ -70,7 +71,7 @@ export class DeepSeekApi implements LLMApi {
         const content = getMessageTextContentWithoutThinking(v);
         messages.push({ role: v.role, content });
       } else {
-        const content = getMessageTextContent(v);
+        const content = await preProcessImageContent(v.content);
         messages.push({ role: v.role, content });
       }
     }
