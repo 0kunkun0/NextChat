@@ -1548,7 +1548,7 @@ function _Chat() {
   );
 
   async function uploadImage() {
-    showToast("app/c* uploadImage called");
+    alert("app/c* uploadImage called");
     const images: string[] = [];
     images.push(...attachImages);
 
@@ -1560,7 +1560,7 @@ function _Chat() {
           "image/png, image/jpeg, image/webp, image/heic, image/heif";
         fileInput.multiple = true;
         fileInput.onchange = (event: any) => {
-          showToast("file selected");
+          alert("file selected");
           setUploading(true);
           const files = event.target.files;
           const imagesData: string[] = [];
@@ -1568,7 +1568,7 @@ function _Chat() {
             const file = event.target.files[i];
             uploadImageRemote(file)
               .then((dataUrl) => {
-                showToast("remote upload Ok");
+                alert("remote upload Ok");
                 imagesData.push(dataUrl);
                 if (
                   imagesData.length === 3 ||
@@ -1579,14 +1579,14 @@ function _Chat() {
                 }
               })
               .catch((e) => {
-                showToast("Error:", e.message);
+                alert("Error:", e.message);
                 setUploading(false);
                 rej(e);
               });
           }
         };
         fileInput.click();
-        showToast("fileInput.click() done.");
+        alert("fileInput.click() done.");
       })),
     );
 
