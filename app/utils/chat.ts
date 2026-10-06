@@ -143,7 +143,6 @@ export function base64Image2Blob(base64Data: string, contentType: string) {
 }
 
 export function uploadImage(file: Blob): Promise<string> {
-  alert("app/utils/chat.ts uploadImage called");
   if (true) {
     // if serviceWorker register error, using compressImage
     return compressImage(file, 1024 * 1024);
