@@ -29,7 +29,7 @@ async function upload(request, url) {
   try {
     const formData = await request.formData();
     const file = formData.getAll('file')[0];
-    console.log("[SW] upload called, file =", file);  // 看这里
+    console.log("[SW] upload called, file =", file);
     if (!file) {
       return jsonify({ code: -1, error: "no file in formData" });
     }
@@ -49,8 +49,13 @@ async function upload(request, url) {
     }));
     return jsonify({ code: 0, data: fileUrl });
   } catch (e) {
-    return jsonify({ code: -1, error: String(e), stack: e.stack });
-  }
+      return jsonify({ 
+        code: -1, 
+        error: e.message,        // 真正信息
+        name: e.name,            // "TypeError"
+        stack: e.stack,          // 调用栈，能看出哪一行
+      });
+}
 }
 
 async function remove(request, url) {
