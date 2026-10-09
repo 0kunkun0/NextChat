@@ -148,3 +148,34 @@ export const useSyncStore = createPersistStore(
     },
   },
 );
+
+export function loadUpstashFromEnv() {
+  // 只在浏览器端执行
+  if (typeof window === "undefined") return;
+
+  const url = process.env.NEXT_PUBLIC_UPSTASH_URL;
+  const token = process.env.NEXT_PUBLIC_UPSTASH_TOKEN;
+  const username = process.env.NEXT_PUBLIC_UPSTASH_USERNAME;
+
+  if (!url || !token) return;
+
+  const current = useSyncStore.getState();
+  const existing = current.upstash;
+
+  // 如果前端已经填过，不覆盖（避免每次刷新都重置用户配置）
+  if (existing.endpoint && existing.apiKey) return;
+
+  // 清理末尾斜杠，避免你之前踩过的 `//set/` 坑
+  const cleanUrl = url.replace(/\/+$/, "");
+
+  useSyncStore.setState({
+    provider: ProviderType.UpStash,
+    upstash: {
+      endpoint: cleanUrl,
+      username: username || existing.username || STORAGE_KEY,
+      apiKey: token,
+    },
+  });
+
+  console.log("[Sync] Upstash config loaded from env vars");
+}
