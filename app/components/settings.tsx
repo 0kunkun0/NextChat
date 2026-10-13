@@ -535,42 +535,44 @@ function SyncItems() {
             />
             {couldSync && (
               <>
-              <IconButton
-                icon={<UploadIcon />}
-                text="上传"
-                onClick={async () => {
-                  try {
-                    const client = createUpstashClient(syncStore);
-                    const local = getLocalAppState();
-                    await client.upload(local);
-                    showToast("上传成功");
-                  } catch (e) {
-                    showToast("上传失败");
-                    console.error("[Upload]", e);
-                  }
-                }}
-              />
-              <IconButton
-                icon={<DownloadIcon />}
-                text="下载"
-                onClick={async () => {
-                  try {
-                    const client = createUpstashClient(syncStore);
-                    const remote = await client.download();
-                    if (!remote) {
-                      showToast("云端暂无数据");
-                      return;
+                <IconButton
+                  icon={<UploadIcon />}
+                  text="上传"
+                  onClick={async () => {
+                    try {
+                      showToast("上传中");
+                      const client = createUpstashClient(syncStore);
+                      const local = getLocalAppState();
+                      await client.upload(local);
+                      showToast("上传成功");
+                    } catch (e) {
+                      showToast("上传失败");
+                      console.error("[Upload]", e);
                     }
-                    setLocalAppState(remote);
-                    showToast("下载成功");
-                  } catch (e) {
-                    showToast("下载失败");
-                    console.error("[Download]", e);
-                  }
-                }}
-              />
-            </>
-          )}
+                  }}
+                />
+                <IconButton
+                  icon={<DownloadIcon />}
+                  text="下载"
+                  onClick={async () => {
+                    try {
+                      showToast("下载中");
+                      const client = createUpstashClient(syncStore);
+                      const remote = await client.download();
+                      if (!remote) {
+                        showToast("云端暂无数据");
+                        return;
+                      }
+                      setLocalAppState(remote);
+                      showToast("下载成功");
+                    } catch (e) {
+                      showToast("下载失败");
+                      console.error("[Download]", e);
+                    }
+                  }}
+                />
+              </>
+            )}
           </div>
         </ListItem>
 
@@ -1484,44 +1486,44 @@ export function Settings() {
     </>
   );
 
-  const ai302ConfigComponent = accessStore.provider === ServiceProvider["302.AI"] && (
+  const ai302ConfigComponent = accessStore.provider ===
+    ServiceProvider["302.AI"] && (
     <>
       <ListItem
-          title={Locale.Settings.Access.AI302.Endpoint.Title}
-          subTitle={
-            Locale.Settings.Access.AI302.Endpoint.SubTitle +
-            AI302.ExampleEndpoint
+        title={Locale.Settings.Access.AI302.Endpoint.Title}
+        subTitle={
+          Locale.Settings.Access.AI302.Endpoint.SubTitle + AI302.ExampleEndpoint
+        }
+      >
+        <input
+          aria-label={Locale.Settings.Access.AI302.Endpoint.Title}
+          type="text"
+          value={accessStore.ai302Url}
+          placeholder={AI302.ExampleEndpoint}
+          onChange={(e) =>
+            accessStore.update(
+              (access) => (access.ai302Url = e.currentTarget.value),
+            )
           }
-        >
-          <input
-            aria-label={Locale.Settings.Access.AI302.Endpoint.Title}
-            type="text"
-            value={accessStore.ai302Url}
-            placeholder={AI302.ExampleEndpoint}
-            onChange={(e) =>
-              accessStore.update(
-                (access) => (access.ai302Url = e.currentTarget.value),
-              )
-            }
-          ></input>
-        </ListItem>
-        <ListItem
-          title={Locale.Settings.Access.AI302.ApiKey.Title}
-          subTitle={Locale.Settings.Access.AI302.ApiKey.SubTitle}
-        >
-          <PasswordInput
-            aria-label={Locale.Settings.Access.AI302.ApiKey.Title}
-            value={accessStore.ai302ApiKey}
-            type="text"
-            placeholder={Locale.Settings.Access.AI302.ApiKey.Placeholder}
-            onChange={(e) => {
-              accessStore.update(
-                (access) => (access.ai302ApiKey = e.currentTarget.value),
-              );
-            }}
-          />
-        </ListItem>
-      </>
+        ></input>
+      </ListItem>
+      <ListItem
+        title={Locale.Settings.Access.AI302.ApiKey.Title}
+        subTitle={Locale.Settings.Access.AI302.ApiKey.SubTitle}
+      >
+        <PasswordInput
+          aria-label={Locale.Settings.Access.AI302.ApiKey.Title}
+          value={accessStore.ai302ApiKey}
+          type="text"
+          placeholder={Locale.Settings.Access.AI302.ApiKey.Placeholder}
+          onChange={(e) => {
+            accessStore.update(
+              (access) => (access.ai302ApiKey = e.currentTarget.value),
+            );
+          }}
+        />
+      </ListItem>
+    </>
   );
 
   return (
