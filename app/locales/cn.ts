@@ -58,6 +58,8 @@ const cn = {
       RefreshToast: "已发送刷新标题请求",
       Speech: "朗读",
       StopSpeech: "停止",
+      VariantPrev: "上一个候选回复",
+      VariantNext: "下一个候选回复",
     },
     Commands: {
       new: "新建聊天",

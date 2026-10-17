@@ -54,6 +54,19 @@ export type ChatMessageTool = {
   errorMsg?: string;
 };
 
+/**
+ * 一条消息的一个候选回复。
+ * 只保存“切换候选时会变化”的部分，结构性字段（id / role）放在外层消息上。
+ */
+export type ChatMessageVariant = {
+  content: RequestMessage["content"];
+  model?: ModelType;
+  date: string;
+  audio_url?: string;
+  tools?: ChatMessageTool[];
+  isError?: boolean;
+};
+
 export type ChatMessage = RequestMessage & {
   date: string;
   streaming?: boolean;
@@ -63,6 +76,13 @@ export type ChatMessage = RequestMessage & {
   tools?: ChatMessageTool[];
   audio_url?: string;
   isMcpResponse?: boolean;
+  /**
+   * 同一条消息的全部候选回复（包含当前生效的那一份）。
+   * variantIndex 指向当前生效的候选，消息自身的 content / model / date
+   * 始终与 variants[variantIndex] 保持同步，因此其它逻辑照旧直接读消息本体即可。
+   */
+  variants?: ChatMessageVariant[];
+  variantIndex?: number;
 };
 
 export function createMessage(override: Partial<ChatMessage>): ChatMessage {
@@ -73,6 +93,85 @@ export function createMessage(override: Partial<ChatMessage>): ChatMessage {
     content: "",
     ...override,
   };
+}
+
+/** 抽取一条消息里会随候选回复切换而变化的部分 */
+export function snapshotMessage(message: ChatMessage): ChatMessageVariant {
+  return {
+    content: message.content,
+    model: message.model,
+    date: message.date,
+    audio_url: message.audio_url,
+    tools: message.tools,
+    isError: message.isError,
+  };
+}
+
+/** 消息的候选回复总数，没有候选数据时视为 1 */
+export function getMessageVariantCount(message: ChatMessage) {
+  return message.variants?.length ? message.variants.length : 1;
+}
+
+/** 当前显示的候选回复下标，从 0 开始 */
+export function getMessageVariantIndex(message: ChatMessage) {
+  const count = getMessageVariantCount(message);
+  return Math.min(Math.max(message.variantIndex ?? 0, 0), count - 1);
+}
+
+/** 把候选回复的内容写回消息本体 */
+export function applyMessageVariant(
+  message: ChatMessage,
+  variant: ChatMessageVariant,
+) {
+  message.content = variant.content;
+  message.model = variant.model;
+  message.date = variant.date ?? message.date;
+  message.audio_url = variant.audio_url;
+  message.tools = variant.tools;
+  message.isError = variant.isError;
+}
+
+/**
+ * 切换消息当前显示的候选回复（直接修改传入的消息）。
+ * 切换前会先把消息当前内容写回快照，因此手动编辑过的内容不会丢。
+ */
+export function switchMessageVariant(message: ChatMessage, index: number) {
+  const variants = message.variants?.length
+    ? message.variants
+    : [snapshotMessage(message)];
+  const currentIndex = getMessageVariantIndex(message);
+  const nextIndex = Math.min(Math.max(index, 0), variants.length - 1);
+
+  // 保存当前候选（可能被编辑过）
+  variants[currentIndex] = snapshotMessage(message);
+  message.variants = variants;
+  message.variantIndex = nextIndex;
+
+  if (nextIndex !== currentIndex) {
+    applyMessageVariant(message, variants[nextIndex]);
+  }
+
+  return message;
+}
+
+/**
+ * 追加一个候选回复并切换过去，返回新候选的下标。
+ * 原有回复会被保留为第 1 个候选。
+ */
+export function addMessageVariant(
+  message: ChatMessage,
+  variant: ChatMessageVariant,
+) {
+  const variants = message.variants?.length
+    ? message.variants.slice()
+    : [snapshotMessage(message)];
+
+  variants.push(variant);
+  message.variants = variants;
+  message.variantIndex = variants.length - 1;
+  applyMessageVariant(message, variant);
+
+  return message.variantIndex;
 }
 
 export interface ChatStat {
@@ -252,6 +351,8 @@ export const useChatStore = createPersistStore(
         newSession.messages = currentSession.messages.map((msg) => ({
           ...msg,
           id: nanoid(), // 生成新的消息 ID
+          // 候选回复也要复制一份，避免两个会话共享同一份数组
+          variants: msg.variants?.map((variant) => ({ ...variant })),
         }));
         newSession.mask = {
           ...currentSession.mask,
@@ -442,7 +543,6 @@ export const useChatStore = createPersistStore(
         // get recent messages
         const recentMessages = await get().getMessagesWithMemory();
         const sendMessages = recentMessages.concat(userMessage);
-        const messageIndex = session.messages.length + 1;
 
         // save user's and bot's message
         get().updateTargetSession(session, (session) => {
@@ -456,7 +556,46 @@ export const useChatStore = createPersistStore(
           ]);
         });
 
+        get().chatWithApi({
+          session,
+          sendMessages,
+          modelConfig,
+          botMessage,
+          flush() {
+            get().updateTargetSession(session, (session) => {
+              session.messages = session.messages.concat();
+            });
+          },
+          onFinishMessage(message) {
+            get().onNewMessage(message, session);
+          },
+          onError(error, isAborted) {
+            userMessage.isError = !isAborted;
+          },
+        });
+      },
+
+      /**
+       * 发起一次模型请求，并把流式结果写进 botMessage。
+       * botMessage 既可以是新消息，也可以是某条消息新增的候选回复，
+       * 调用方通过 flush 把最新内容同步到界面上。
+       */
+      chatWithApi(options: {
+        session: ChatSession;
+        sendMessages: RequestMessage[];
+        modelConfig: ModelConfig;
+        botMessage: ChatMessage;
+        /** 用于停止/重试的控制器的 key，默认使用 botMessage.id */
+        trackingId?: string;
+        flush: () => void;
+        onFinishMessage?: (botMessage: ChatMessage) => void;
+        onError?: (error: Error, isAborted: boolean) => void;
+      }) {
+        const { session, sendMessages, modelConfig, botMessage, flush } =
+          options;
+        const trackingId = options.trackingId ?? botMessage.id;
         const api: ClientApi = getClientApi(modelConfig.providerName);
+
         // make request
         api.llm.chat({
           messages: sendMessages,
@@ -466,24 +605,21 @@ export const useChatStore = createPersistStore(
             if (message) {
               botMessage.content = message;
             }
-            get().updateTargetSession(session, (session) => {
-              session.messages = session.messages.concat();
-            });
+            flush();
           },
-          async onFinish(message) {
+          onFinish(message) {
             botMessage.streaming = false;
             if (message) {
               botMessage.content = message;
               botMessage.date = new Date().toLocaleString();
-              get().onNewMessage(botMessage, session);
+              options.onFinishMessage?.(botMessage);
             }
-            ChatControllerPool.remove(session.id, botMessage.id);
+            flush();
+            ChatControllerPool.remove(session.id, trackingId);
           },
           onBeforeTool(tool: ChatMessageTool) {
             (botMessage.tools = botMessage?.tools || []).push(tool);
-            get().updateTargetSession(session, (session) => {
-              session.messages = session.messages.concat();
-            });
+            flush();
           },
           onAfterTool(tool: ChatMessageTool) {
             botMessage?.tools?.forEach((t, i, tools) => {
@@ -491,9 +627,7 @@ export const useChatStore = createPersistStore(
                 tools[i] = { ...tool };
               }
             });
-            get().updateTargetSession(session, (session) => {
-              session.messages = session.messages.concat();
-            });
+            flush();
           },
           onError(error) {
             const isAborted = error.message?.includes?.("aborted");
@@ -504,15 +638,10 @@ export const useChatStore = createPersistStore(
                 message: error.message,
               });
             botMessage.streaming = false;
-            userMessage.isError = !isAborted;
             botMessage.isError = !isAborted;
-            get().updateTargetSession(session, (session) => {
-              session.messages = session.messages.concat();
-            });
-            ChatControllerPool.remove(
-              session.id,
-              botMessage.id ?? messageIndex,
-            );
+            options.onError?.(error, !!isAborted);
+            flush();
+            ChatControllerPool.remove(session.id, trackingId);
 
             console.error("[Chat] failed ", error);
           },
@@ -520,10 +649,105 @@ export const useChatStore = createPersistStore(
             // collect controller for stop/retry
             ChatControllerPool.addController(
               session.id,
-              botMessage.id ?? messageIndex,
+              trackingId,
               controller,
             );
           },
+        });
+      },
+
+      /**
+       * 切换某条消息当前显示的候选回复。
+       * 切换前会先把消息当前内容写回快照，因此手动编辑过的内容不会丢。
+       */
+      selectMessageVariant(
+        targetSession: ChatSession,
+        messageId: string,
+        index: number,
+      ) {
+        get().updateTargetSession(targetSession, (session) => {
+          const message = session.messages.find((m) => m.id === messageId);
+          if (!message) return;
+          switchMessageVariant(message, index);
+        });
+      },
+
+      /**
+       * 为某条 assistant 消息生成一个新的候选回复。
+       * 旧的回复会作为候选保留下来，不会被删除。
+       */
+      async regenerateMessage(targetSession: ChatSession, messageId: string) {
+        const session = targetSession;
+        const messageIndex = session.messages.findIndex(
+          (m) => m.id === messageId,
+        );
+        if (messageIndex < 0) return;
+
+        const target = session.messages[messageIndex];
+        if (target.role !== "assistant" || target.streaming) return;
+
+        // 重新生成必须能对应到一条 user 消息
+        const userMessage = session.messages[messageIndex - 1];
+        if (!userMessage || userMessage.role !== "user") {
+          console.error("[Chat] failed to regenerate message", target);
+          return;
+        }
+
+        const modelConfig = session.mask.modelConfig;
+        // 只拼接到这条回复之前的历史（包含它对应的 user 消息）
+        const sendMessages = await get().getMessagesWithMemory(messageIndex);
+
+        // 第一次生成候选时，原来的回复会被保存成第 1 个候选
+        const botMessage = createMessage({
+          role: "assistant",
+          streaming: true,
+          model: modelConfig.model,
+        });
+        const newIndex = addMessageVariant(target, snapshotMessage(botMessage));
+
+        target.streaming = true;
+        target.isError = false;
+        target.tools = undefined;
+        target.audio_url = undefined;
+        session.lastUpdate = Date.now();
+
+        // 把 botMessage 的流式内容同步到消息本体和候选快照
+        const flush = () => {
+          get().updateTargetSession(session, (session) => {
+            const message = session.messages.find((m) => m.id === target.id);
+            if (!message) return;
+
+            const variant = message.variants?.[newIndex];
+            if (variant) {
+              variant.content = botMessage.content;
+              variant.model = botMessage.model;
+              variant.date = botMessage.date;
+              variant.tools = botMessage.tools;
+              variant.isError = botMessage.isError;
+              variant.audio_url = botMessage.audio_url;
+            }
+
+            message.content = botMessage.content;
+            message.model = botMessage.model;
+            message.date = botMessage.date;
+            message.tools = botMessage.tools;
+            message.isError = botMessage.isError;
+            message.streaming = botMessage.streaming;
+
+            session.messages = session.messages.concat();
+          });
+        };
+
+        // 立刻刷新一次，显示“正在输入”
+        flush();
+
+        get().chatWithApi({
+          session,
+          sendMessages,
+          modelConfig,
+          botMessage,
+          trackingId: target.id,
+          flush,
         });
       },
 
@@ -539,12 +763,19 @@ export const useChatStore = createPersistStore(
         }
       },
 
-      async getMessagesWithMemory() {
+      /**
+       * @param endIndex 只取 session.messages 中该下标之前的消息
+       *   （重新生成某条候选回复时用，避免把后面的对话也发出去）
+       */
+      async getMessagesWithMemory(endIndex?: number) {
         const session = get().currentSession();
         const modelConfig = session.mask.modelConfig;
         const clearContextIndex = session.clearContextIndex ?? 0;
-        const messages = session.messages.slice();
-        const totalMessageCount = session.messages.length;
+        const messages =
+          endIndex === undefined
+            ? session.messages.slice()
+            : session.messages.slice(0, Math.max(0, endIndex));
+        const totalMessageCount = messages.length;
 
         // in-context prompts
         const contextPrompts = session.mask.context.slice();

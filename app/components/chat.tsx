@@ -26,7 +26,6 @@ import MaxIcon from "../icons/max.svg";
 import MinIcon from "../icons/min.svg";
 import ResetIcon from "../icons/reload.svg";
 import ReloadIcon from "../icons/reload.svg";
-import BreakIcon from "../icons/break.svg";
 import SettingsIcon from "../icons/chat-settings.svg";
 import DeleteIcon from "../icons/clear.svg";
 import PinIcon from "../icons/pin.svg";
@@ -51,8 +50,11 @@ import HeadphoneIcon from "../icons/headphone.svg";
 import {
   BOT_HELLO,
   ChatMessage,
+  ChatSession,
   createMessage,
   DEFAULT_TOPIC,
+  getMessageVariantCount,
+  getMessageVariantIndex,
   ModelType,
   SubmitKey,
   Theme,
@@ -397,6 +399,52 @@ function ClearContextDivider() {
       <div className={styles["clear-context-revert-btn"]}>
         {Locale.Context.Revert}
       </div>
+    </div>
+  );
+}
+
+/**
+ * 一条消息有多个候选回复时，在消息气泡外显示 "< 3/5 >" 切换器。
+ * 切换后该气泡会重新渲染为对应候选的内容。
+ */
+export function MessageVariantSwitcher(props: {
+  session: ChatSession;
+  message: ChatMessage;
+}) {
+  const chatStore = useChatStore();
+  const count = getMessageVariantCount(props.message);
+  const index = getMessageVariantIndex(props.message);
+
+  // 只有一条回复时不需要切换器
+  if (count <= 1) return null;
+
+  const select = (next: number) => {
+    chatStore.selectMessageVariant(props.session, props.message.id, next);
+  };
+
+  return (
+    <div className={styles["chat-message-variants"]}>
+      <button
+        type="button"
+        className={styles["chat-message-variant-switch"]}
+        title={Locale.Chat.Actions.VariantPrev}
+        aria-label={Locale.Chat.Actions.VariantPrev}
+        onClick={() => select((index - 1 + count) % count)}
+      >
+        {"<"}
+      </button>
+      <span className={styles["chat-message-variant-index"]}>
+        {`${index + 1}/${count}`}
+      </span>
+      <button
+        type="button"
+        className={styles["chat-message-variant-switch"]}
+        title={Locale.Chat.Actions.VariantNext}
+        aria-label={Locale.Chat.Actions.VariantNext}
+        onClick={() => select((index + 1) % count)}
+      >
+        {">"}
+      </button>
     </div>
   );
 }
@@ -1265,6 +1313,34 @@ function _Chat() {
     inputRef.current?.focus();
   };
 
+  /**
+   * 找到这条消息对应的回复：assistant 消息本身就是回复，
+   * user 消息则取紧随其后的 assistant 消息。
+   */
+  const findReplyMessage = (message: ChatMessage) => {
+    const index = session.messages.findIndex((m) => m.id === message.id);
+    if (index < 0) return undefined;
+    if (message.role === "assistant") return message;
+    const next = session.messages[index + 1];
+    return next?.role === "assistant" ? next : undefined;
+  };
+
+  /**
+   * 重试：已经有回复时，为这条回复新增一个候选（旧回复保留），
+   * 没有回复时回退到“删除后重新发送”。
+   */
+  const onRetry = (message: ChatMessage) => {
+    const reply = findReplyMessage(message);
+    if (reply) {
+      chatStore
+        .regenerateMessage(session, reply.id)
+        .catch((e) => console.error("[Chat] regenerate failed", e));
+      inputRef.current?.focus();
+      return;
+    }
+    onResend(message);
+  };
+
   const onPinMessage = (message: ChatMessage) => {
     chatStore.updateTargetSession(session, (session) =>
       session.mask.context.push(message),
@@ -1647,7 +1723,8 @@ function _Chat() {
         event.preventDefault();
         setShowShortcutKeyModal(true);
       }
-      {/*
+      {
+        /*
       // 清除上下文 command + shift + backspace
       else if (
         (event.metaKey || event.ctrlKey) &&
@@ -1663,7 +1740,8 @@ function _Chat() {
             session.memoryPrompt = ""; // will clear memory
           }
         });
-      }*/}
+      }*/
+      }
     };
 
     document.addEventListener("keydown", handleKeyDown);
@@ -1884,7 +1962,7 @@ function _Chat() {
                                       <ChatAction
                                         text={Locale.Chat.Actions.Retry}
                                         icon={<ResetIcon />}
-                                        onClick={() => onResend(message)}
+                                        onClick={() => onRetry(message)}
                                       />
 
                                       <ChatAction
@@ -2021,6 +2099,13 @@ function _Chat() {
                             <div className={styles["chat-message-audio"]}>
                               <audio src={message.audio_url} controls />
                             </div>
+                          )}
+
+                          {!isContext && !showTyping && (
+                            <MessageVariantSwitcher
+                              session={session}
+                              message={message}
+                            />
                           )}
 
                           <div className={styles["chat-message-action-date"]}>
