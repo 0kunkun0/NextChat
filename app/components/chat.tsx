@@ -404,19 +404,25 @@ function ClearContextDivider() {
 }
 
 /**
- * 一条消息有多个候选回复时，在消息气泡外显示 "< 3/5 >" 切换器。
- * 切换后该气泡会重新渲染为对应候选的内容。
+ * 消息气泡下方的一行：
+ * - 有多个候选回复时显示 "< 3/5 >" 切换器，切换后气泡重新渲染；
+ * - 顺便提供「重新生成」按钮，不用再滚到气泡上方去点。
  */
 export function MessageVariantSwitcher(props: {
   session: ChatSession;
   message: ChatMessage;
+  /** 重新生成一个候选回复，不传则不显示按钮 */
+  onRegenerate?: () => void;
 }) {
   const chatStore = useChatStore();
   const count = getMessageVariantCount(props.message);
   const index = getMessageVariantIndex(props.message);
 
   // 只有一条回复时不需要切换器
-  if (count <= 1) return null;
+  const canSwitch = count > 1;
+  const canRegenerate = !!props.onRegenerate;
+
+  if (!canSwitch && !canRegenerate) return null;
 
   const select = (next: number) => {
     chatStore.selectMessageVariant(props.session, props.message.id, next);
@@ -424,27 +430,47 @@ export function MessageVariantSwitcher(props: {
 
   return (
     <div className={styles["chat-message-variants"]}>
-      <button
-        type="button"
-        className={styles["chat-message-variant-switch"]}
-        title={Locale.Chat.Actions.VariantPrev}
-        aria-label={Locale.Chat.Actions.VariantPrev}
-        onClick={() => select((index - 1 + count) % count)}
-      >
-        {"<"}
-      </button>
-      <span className={styles["chat-message-variant-index"]}>
-        {`${index + 1}/${count}`}
-      </span>
-      <button
-        type="button"
-        className={styles["chat-message-variant-switch"]}
-        title={Locale.Chat.Actions.VariantNext}
-        aria-label={Locale.Chat.Actions.VariantNext}
-        onClick={() => select((index + 1) % count)}
-      >
-        {">"}
-      </button>
+      {canSwitch && (
+        <>
+          <button
+            type="button"
+            className={styles["chat-message-variant-switch"]}
+            title={Locale.Chat.Actions.VariantPrev}
+            aria-label={Locale.Chat.Actions.VariantPrev}
+            onClick={() => select((index - 1 + count) % count)}
+          >
+            {"<"}
+          </button>
+          <span className={styles["chat-message-variant-index"]}>
+            {`${index + 1}/${count}`}
+          </span>
+          <button
+            type="button"
+            className={styles["chat-message-variant-switch"]}
+            title={Locale.Chat.Actions.VariantNext}
+            aria-label={Locale.Chat.Actions.VariantNext}
+            onClick={() => select((index + 1) % count)}
+          >
+            {">"}
+          </button>
+        </>
+      )}
+      {canSwitch && canRegenerate && (
+        <span className={styles["chat-message-variant-divider"]} />
+      )}
+      {canRegenerate && (
+        <button
+          type="button"
+          className={styles["chat-message-variant-regenerate"]}
+          title={Locale.Chat.Actions.Regenerate}
+          aria-label={Locale.Chat.Actions.Regenerate}
+          onClick={() => props.onRegenerate?.()}
+        >
+          <div className={styles["chat-message-variant-regenerate-icon"]}>
+            <ResetIcon />
+          </div>
+        </button>
+      )}
     </div>
   );
 }
@@ -2105,6 +2131,11 @@ function _Chat() {
                             <MessageVariantSwitcher
                               session={session}
                               message={message}
+                              onRegenerate={
+                                isUser || !showActions
+                                  ? undefined
+                                  : () => onRetry(message)
+                              }
                             />
                           )}
 

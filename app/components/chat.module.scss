@@ -589,6 +589,56 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 候选切换器与「重新生成」按钮之间的分隔线 */
+.chat-message-variant-divider {
+  width: 1px;
+  height: 10px;
+  margin: 0 2px;
+  background-color: currentColor;
+  opacity: 0.3;
+}
+
+.chat-message-variant-regenerate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background-color ease 0.2s;
+
+  &:hover {
+    background-color: var(--hover-color);
+  }
+}
+
+.chat-message-variant-regenerate-icon {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  svg {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+/* 手机上把切换/重新生成的点击区域放大一点 */
+@media only screen and (max-width: 600px) {
+  .chat-message-variant-switch,
+  .chat-message-variant-regenerate {
+    width: 26px;
+    height: 26px;
+  }
+}
+
 .chat-message-user > .chat-message-container > .chat-message-item {
   background-color: var(--second);
 

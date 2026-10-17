@@ -60,6 +60,7 @@ const cn = {
       StopSpeech: "停止",
       VariantPrev: "上一个候选回复",
       VariantNext: "下一个候选回复",
+      Regenerate: "重新生成",
     },
     Commands: {
       new: "新建聊天",

@@ -61,6 +61,7 @@ const en: LocaleType = {
       StopSpeech: "Stop",
       VariantPrev: "Previous Reply",
       VariantNext: "Next Reply",
+      Regenerate: "Regenerate",
     },
     Commands: {
       new: "Start a new chat",
