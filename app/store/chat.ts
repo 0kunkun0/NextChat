@@ -528,33 +528,72 @@ export const useChatStore = createPersistStore(
           ];
         }
 
-        let userMessage: ChatMessage = createMessage({
+        const userMessage: ChatMessage = createMessage({
           role: "user",
           content: mContent,
           isMcpResponse,
         });
 
+        // 1. 先把 user 消息写进会话，再做任何可能失败的异步操作。
+        //    历史组装要读 MCP（Next server action）、请求还要读模型配置，这些在
+        //    低配/弱网环境里都可能抛错甚至把页面搞崩；先落库才能保证后面即使
+        //    全部失败，用户发出去的话也还在。
+        const historyEndIndex = session.messages.length;
+        get().updateTargetSession(session, (session) => {
+          session.messages = session.messages.concat([
+            { ...userMessage, content: mContent },
+          ]);
+          session.lastUpdate = Date.now();
+        });
+
+        // 回复始终紧跟在它对应的 user 消息后面。
+        // 历史组装较慢时用户可能已经发了下一条，直接 push 到末尾会把顺序搞乱。
+        const insertReply = (reply: ChatMessage) => {
+          get().updateTargetSession(session, (target) => {
+            const index = target.messages.findIndex(
+              (m) => m.id === userMessage.id,
+            );
+            const messages = target.messages.slice();
+            // 必须换一个新数组，否则依赖 session.messages 引用的 useMemo 不会重算
+            messages.splice(index >= 0 ? index + 1 : messages.length, 0, reply);
+            target.messages = messages;
+          });
+        };
+
+        // 2. 组装要发给模型的历史。
+        //    只取新增消息之前的部分（historyEndIndex），否则会把这条 user 消息发两遍。
+        let sendMessages: RequestMessage[];
+        try {
+          const recentMessages =
+            await get().getMessagesWithMemory(historyEndIndex);
+          sendMessages = recentMessages.concat(userMessage);
+        } catch (error) {
+          console.error("[Chat] failed to assemble messages", error);
+          // user 消息已经保存了，这里补一条错误回复：用户能看到失败原因，
+          // 也能直接点它下面的「重新生成」重试，不用重新输入。
+          insertReply(
+            createMessage({
+              role: "assistant",
+              isError: true,
+              content: prettyObject({
+                error: true,
+                message: `failed to send: ${
+                  (error as Error)?.message ?? error
+                }`,
+              }),
+            }),
+          );
+          return;
+        }
+
+        // 3. 占位回复 + 发起请求
         const botMessage: ChatMessage = createMessage({
           role: "assistant",
           streaming: true,
           model: modelConfig.model,
         });
 
-        // get recent messages
-        const recentMessages = await get().getMessagesWithMemory();
-        const sendMessages = recentMessages.concat(userMessage);
-
-        // save user's and bot's message
-        get().updateTargetSession(session, (session) => {
-          const savedUserMessage = {
-            ...userMessage,
-            content: mContent,
-          };
-          session.messages = session.messages.concat([
-            savedUserMessage,
-            botMessage,
-          ]);
-        });
+        insertReply(botMessage);
 
         get().chatWithApi({
           session,
@@ -594,66 +633,87 @@ export const useChatStore = createPersistStore(
         const { session, sendMessages, modelConfig, botMessage, flush } =
           options;
         const trackingId = options.trackingId ?? botMessage.id;
-        const api: ClientApi = getClientApi(modelConfig.providerName);
 
-        // make request
-        api.llm.chat({
-          messages: sendMessages,
-          config: { ...modelConfig, stream: true },
-          onUpdate(message) {
-            botMessage.streaming = true;
-            if (message) {
-              botMessage.content = message;
-            }
-            flush();
-          },
-          onFinish(message) {
-            botMessage.streaming = false;
-            if (message) {
-              botMessage.content = message;
-              botMessage.date = new Date().toLocaleString();
-              options.onFinishMessage?.(botMessage);
-            }
-            flush();
-            ChatControllerPool.remove(session.id, trackingId);
-          },
-          onBeforeTool(tool: ChatMessageTool) {
-            (botMessage.tools = botMessage?.tools || []).push(tool);
-            flush();
-          },
-          onAfterTool(tool: ChatMessageTool) {
-            botMessage?.tools?.forEach((t, i, tools) => {
-              if (tool.id == t.id) {
-                tools[i] = { ...tool };
-              }
+        // 同一次请求只处理一次错误：
+        // provider 可能先回调 onError，再让 chat() 的 promise 也 reject。
+        let errorHandled = false;
+        const handleError = (error: Error) => {
+          if (errorHandled) return;
+          errorHandled = true;
+
+          const isAborted = error?.message?.includes?.("aborted");
+          const message = error?.message ?? String(error);
+          botMessage.content +=
+            "\n\n" +
+            prettyObject({
+              error: true,
+              message,
             });
-            flush();
-          },
-          onError(error) {
-            const isAborted = error.message?.includes?.("aborted");
-            botMessage.content +=
-              "\n\n" +
-              prettyObject({
-                error: true,
-                message: error.message,
-              });
-            botMessage.streaming = false;
-            botMessage.isError = !isAborted;
-            options.onError?.(error, !!isAborted);
-            flush();
-            ChatControllerPool.remove(session.id, trackingId);
+          botMessage.streaming = false;
+          botMessage.isError = !isAborted;
+          options.onError?.(error, !!isAborted);
+          flush();
+          ChatControllerPool.remove(session.id, trackingId);
 
-            console.error("[Chat] failed ", error);
-          },
-          onController(controller) {
-            // collect controller for stop/retry
-            ChatControllerPool.addController(
-              session.id,
-              trackingId,
-              controller,
-            );
-          },
-        });
+          console.error("[Chat] failed ", error);
+        };
+
+        try {
+          const api: ClientApi = getClientApi(modelConfig.providerName);
+
+          // make request
+          const request = api.llm.chat({
+            messages: sendMessages,
+            config: { ...modelConfig, stream: true },
+            onUpdate(message) {
+              botMessage.streaming = true;
+              if (message) {
+                botMessage.content = message;
+              }
+              flush();
+            },
+            onFinish(message) {
+              botMessage.streaming = false;
+              if (message) {
+                botMessage.content = message;
+                botMessage.date = new Date().toLocaleString();
+                options.onFinishMessage?.(botMessage);
+              }
+              flush();
+              ChatControllerPool.remove(session.id, trackingId);
+            },
+            onBeforeTool(tool: ChatMessageTool) {
+              (botMessage.tools = botMessage?.tools || []).push(tool);
+              flush();
+            },
+            onAfterTool(tool: ChatMessageTool) {
+              botMessage?.tools?.forEach((t, i, tools) => {
+                if (tool.id == t.id) {
+                  tools[i] = { ...tool };
+                }
+              });
+              flush();
+            },
+            onError(error) {
+              handleError(error);
+            },
+            onController(controller) {
+              // collect controller for stop/retry
+              ChatControllerPool.addController(
+                session.id,
+                trackingId,
+                controller,
+              );
+            },
+          });
+
+          // 部分 provider 的 chat() 是 async：内部异常会变成 rejected promise，
+          // 不接住就是 unhandled rejection（低配环境里可能直接把页面带崩）。
+          Promise.resolve(request).catch(handleError);
+        } catch (error) {
+          // provider 初始化 / 参数校验等同步异常，同样落到错误气泡里
+          handleError(error as Error);
+        }
       },
 
       /**
@@ -786,8 +846,19 @@ export const useChatStore = createPersistStore(
           (session.mask.modelConfig.model.startsWith("gpt-") ||
             session.mask.modelConfig.model.startsWith("chatgpt-"));
 
-        const mcpEnabled = await isMcpEnabled();
-        const mcpSystemPrompt = mcpEnabled ? await getMcpSystemPrompt() : "";
+        // MCP 提示词是通过 Next server action 拿的：
+        // 低配/弱网环境下可能失败、超时，静态导出（export/app）环境下甚至根本不可用。
+        // 失败时降级为「不带 MCP 提示词」，绝不能让整条发送链路跟着失败。
+        let mcpEnabled = false;
+        let mcpSystemPrompt = "";
+        try {
+          mcpEnabled = await isMcpEnabled();
+          mcpSystemPrompt = mcpEnabled ? await getMcpSystemPrompt() : "";
+        } catch (error) {
+          console.warn("[MCP] failed to build system prompt, skip it", error);
+          mcpEnabled = false;
+          mcpSystemPrompt = "";
+        }
 
         var systemPrompts: ChatMessage[] = [];
 

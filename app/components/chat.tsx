@@ -431,7 +431,7 @@ export function MessageVariantSwitcher(props: {
   return (
     <div className={styles["chat-message-variants"]}>
       {canSwitch && (
-        <>
+        <div className={styles["chat-message-variant-switcher"]}>
           <button
             type="button"
             className={styles["chat-message-variant-switch"]}
@@ -453,7 +453,7 @@ export function MessageVariantSwitcher(props: {
           >
             {">"}
           </button>
-        </>
+        </div>
       )}
       {canSwitch && canRegenerate && (
         <span className={styles["chat-message-variant-divider"]} />
@@ -1183,7 +1183,12 @@ function _Chat() {
     setIsLoading(true);
     chatStore
       .onUserInput(userInput, attachImages)
-      .then(() => setIsLoading(false));
+      .catch((error) => {
+        // 正常情况下 onUserInput 内部已经吞掉了发送错误（消息先落库再发），
+        // 这里只是兜底，避免出现 unhandled rejection 把页面带崩。
+        console.error("[Chat] failed to send message", error);
+      })
+      .finally(() => setIsLoading(false));
     setAttachImages([]);
     chatStore.setLastInput(userInput);
     setUserInput("");
@@ -1328,6 +1333,7 @@ function _Chat() {
     }
 
     // delete the original messages
+    const messagesBeforeResend = session.messages.slice();
     deleteMessage(userMessage.id);
     deleteMessage(botMessage?.id);
 
@@ -1335,7 +1341,18 @@ function _Chat() {
     setIsLoading(true);
     const textContent = getMessageTextContent(userMessage);
     const images = getMessageImages(userMessage);
-    chatStore.onUserInput(textContent, images).then(() => setIsLoading(false));
+    chatStore
+      .onUserInput(textContent, images)
+      .catch((error) => {
+        console.error("[Chat] failed to resend message", error);
+        // 极端情况下（新消息还没写进会话就抛错）把删掉的消息补回去，
+        // 宁可多一条重复消息，也不能让用户的内容凭空消失。
+        chatStore.updateTargetSession(
+          session,
+          (session) => (session.messages = messagesBeforeResend),
+        );
+      })
+      .finally(() => setIsLoading(false));
     inputRef.current?.focus();
   };
 
