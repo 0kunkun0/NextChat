@@ -228,6 +228,18 @@ const cn = {
       NotSyncYet: "还没有进行过同步",
       Success: "同步成功",
       Fail: "同步失败",
+      Upload: "上传",
+      Download: "下载",
+      Uploading: "上传中",
+      UploadSuccess: "上传成功",
+      UploadFailed: "上传失败",
+      Downloading: "下载中",
+      DownloadSuccess: "下载成功",
+      DownloadFailed: "下载失败",
+      NoRemoteData: "云端暂无数据",
+      Never: "从未",
+      LastUploadDownload: (uploadAt: string, downloadAt: string) =>
+        `[上传] ${uploadAt}；[下载] ${downloadAt}`,
 
       Config: {
         Modal: {

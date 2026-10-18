@@ -12,6 +12,8 @@ const config: Config = {
   testEnvironment: "jsdom",
   testMatch: ["**/*.test.js", "**/*.test.ts", "**/*.test.jsx", "**/*.test.tsx"],
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
+  // NextChat 是另一个仓库的 submodule，别把它那份过期的测试也算进来
+  testPathIgnorePatterns: ["/node_modules/", "<rootDir>/NextChat/"],
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/$1",
   },

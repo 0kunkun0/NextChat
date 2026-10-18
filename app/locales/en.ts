@@ -230,6 +230,18 @@ const en: LocaleType = {
       NotSyncYet: "Not sync yet",
       Success: "Sync Success",
       Fail: "Sync Fail",
+      Upload: "Upload",
+      Download: "Download",
+      Uploading: "Uploading",
+      UploadSuccess: "Upload Success",
+      UploadFailed: "Upload Failed",
+      Downloading: "Downloading",
+      DownloadSuccess: "Download Success",
+      DownloadFailed: "Download Failed",
+      NoRemoteData: "No data in cloud",
+      Never: "Never",
+      LastUploadDownload: (uploadAt: string, downloadAt: string) =>
+        `[Upload] ${uploadAt}; [Download] ${downloadAt}`,
 
       Config: {
         Modal: {

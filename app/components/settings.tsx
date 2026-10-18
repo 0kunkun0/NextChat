@@ -498,6 +498,37 @@ function SyncItems() {
   }, [syncStore]);
 
   const [showSyncConfigModal, setShowSyncConfigModal] = useState(false);
+  // 上传进度（分片），用于在按钮上显示 x/y，不用一直干等
+  const [uploadProgress, setUploadProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+
+  const uploadText = !uploadProgress
+    ? Locale.Settings.Sync.Upload
+    : uploadProgress.total > 0
+    ? `${Locale.Settings.Sync.Uploading} ${uploadProgress.done}/${uploadProgress.total}`
+    : Locale.Settings.Sync.Uploading;
+
+  // 云端数据的状态文案：分别显示上次上传 / 下载的时间
+  const syncStateText = (() => {
+    const formatTime = (time: number) =>
+      time ? new Date(time).toLocaleString() : Locale.Settings.Sync.Never;
+
+    if (!syncStore.lastUploadTime && !syncStore.lastDownloadTime) {
+      // 兼容原版「同步」按钮留下的记录
+      return syncStore.lastProvider
+        ? `${new Date(syncStore.lastSyncTime).toLocaleString()} [${
+            syncStore.lastProvider
+          }]`
+        : Locale.Settings.Sync.NotSyncYet;
+    }
+
+    return Locale.Settings.Sync.LastUploadDownload(
+      formatTime(syncStore.lastUploadTime),
+      formatTime(syncStore.lastDownloadTime),
+    );
+  })();
 
   const stateOverview = useMemo(() => {
     const sessions = chatStore.sessions;
@@ -516,13 +547,7 @@ function SyncItems() {
       <List>
         <ListItem
           title={Locale.Settings.Sync.CloudState}
-          subTitle={
-            syncStore.lastProvider
-              ? `${new Date(syncStore.lastSyncTime).toLocaleString()} [${
-                  syncStore.lastProvider
-                }]`
-              : Locale.Settings.Sync.NotSyncYet
-          }
+          subTitle={syncStateText}
         >
           <div style={{ display: "flex" }}>
             <IconButton
@@ -537,36 +562,46 @@ function SyncItems() {
               <>
                 <IconButton
                   icon={<UploadIcon />}
-                  text="上传"
+                  text={uploadText}
+                  disabled={uploadProgress !== null}
                   onClick={async () => {
                     try {
-                      showToast("上传中");
                       const client = createUpstashClient(syncStore);
                       const local = getLocalAppState();
-                      await client.upload(local);
-                      showToast("上传成功");
+                      setUploadProgress({ done: 0, total: 0 });
+                      showToast(Locale.Settings.Sync.Uploading);
+                      // 先让「上传中」这一帧渲染出来，再去做 JSON 序列化 / 分片这类重活
+                      await new Promise((resolve) => setTimeout(resolve, 0));
+                      await client.upload(local, (done, total) =>
+                        setUploadProgress({ done, total }),
+                      );
+                      syncStore.markUploadTime();
+                      showToast(Locale.Settings.Sync.UploadSuccess);
                     } catch (e) {
-                      showToast("上传失败");
+                      showToast(Locale.Settings.Sync.UploadFailed);
                       console.error("[Upload]", e);
+                    } finally {
+                      setUploadProgress(null);
                     }
                   }}
                 />
                 <IconButton
                   icon={<DownloadIcon />}
-                  text="下载"
+                  text={Locale.Settings.Sync.Download}
                   onClick={async () => {
                     try {
-                      showToast("下载中");
+                      showToast(Locale.Settings.Sync.Downloading);
                       const client = createUpstashClient(syncStore);
                       const remote = await client.download();
                       if (!remote) {
-                        showToast("云端暂无数据");
+                        showToast(Locale.Settings.Sync.NoRemoteData);
                         return;
                       }
                       setLocalAppState(remote);
-                      showToast("下载成功");
+                      syncStore.markDownloadTime();
+                      showToast(Locale.Settings.Sync.DownloadSuccess);
                     } catch (e) {
-                      showToast("下载失败");
+                      showToast(Locale.Settings.Sync.DownloadFailed);
                       console.error("[Download]", e);
                     }
                   }}

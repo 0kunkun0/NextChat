@@ -41,6 +41,9 @@ const DEFAULT_SYNC_STATE = {
 
   lastSyncTime: 0,
   lastProvider: "",
+  // 上传 / 下载分别记录时间（原版只有一个「同步」按钮，靠 lastSyncTime 记录）
+  lastUploadTime: 0,
+  lastDownloadTime: 0,
 };
 
 export const useSyncStore = createPersistStore(
@@ -53,6 +56,14 @@ export const useSyncStore = createPersistStore(
 
     markSyncTime() {
       set({ lastSyncTime: Date.now(), lastProvider: get().provider });
+    },
+
+    markUploadTime() {
+      set({ lastUploadTime: Date.now() });
+    },
+
+    markDownloadTime() {
+      set({ lastDownloadTime: Date.now() });
     },
 
     export() {
@@ -103,9 +114,8 @@ export const useSyncStore = createPersistStore(
           );
           return;
         } else {
-          const parsedRemoteState = JSON.parse(
-            await client.get(config.username),
-          ) as AppState;
+          // 这里原来又 get 了一次，白白多拉一遍全量数据
+          const parsedRemoteState = JSON.parse(remoteState) as AppState;
           mergeAppState(localState, parsedRemoteState);
           setLocalAppState(localState);
         }
