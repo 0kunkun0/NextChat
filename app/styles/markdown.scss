@@ -1130,3 +1130,36 @@
 #dmermaid {
   display: none;
 }
+
+/* ---------------------------------------------------------------- */
+/* 下面是为本 fork 补充的渲染细节                                     */
+/* ---------------------------------------------------------------- */
+
+/*
+ * 表格外层容器：负责横向滚动。
+ * 移动端不再把表格压成屏幕宽度，而是像 GitHub 一样左右滑动查看，
+ * 表格本身恢复成 display: table，列宽才不会被挤扁。
+ */
+.markdown-table-wrapper {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: 16px;
+}
+
+.markdown-body .markdown-table-wrapper > table {
+  display: table;
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  margin-bottom: 0;
+  overflow: visible;
+}
+
+/*
+ * 段落之间留出一整个行高（1.5em ≈ line-height），
+ * 这样“两个换行”看起来才是一个真正的空行，而不是像被吞成了一个换行。
+ */
+.markdown-body p {
+  margin-bottom: 1.5em;
+}

@@ -7,6 +7,7 @@ import RemarkGfm from "remark-gfm";
 import RehypeHighlight from "rehype-highlight";
 import { useRef, useState, RefObject, useEffect, useMemo } from "react";
 import { copyToClipboard, useWindowSize } from "../utils";
+import { normalizeBlankLines } from "../utils/format";
 import mermaid from "mermaid";
 import Locale from "../locales";
 import LoadingIcon from "../icons/three-dots.svg";
@@ -269,12 +270,17 @@ function tryWrapHtmlCode(text: string) {
 
 function _MarkDownContent(props: { content: string }) {
   const escapedContent = useMemo(() => {
-    return tryWrapHtmlCode(escapeBrackets(props.content));
+    return tryWrapHtmlCode(escapeBrackets(normalizeBlankLines(props.content)));
   }, [props.content]);
 
   return (
     <ReactMarkdown
-      remarkPlugins={[RemarkMath, RemarkGfm, RemarkBreaks]}
+      remarkPlugins={[
+        RemarkMath,
+        // singleTilde: false —— 让 ~xxx~ 保持原样，只有 ~~xxx~~ 才是删除线
+        [RemarkGfm, { singleTilde: false }],
+        RemarkBreaks,
+      ]}
       rehypePlugins={[
         RehypeKatex,
         [
@@ -289,6 +295,13 @@ function _MarkDownContent(props: { content: string }) {
         pre: PreCode,
         code: CustomCode,
         p: (pProps) => <p {...pProps} dir="auto" />,
+        // 表格外包一层可横向滚动的容器：移动端不再把表格压成屏幕宽度，
+        // 而是像 GitHub 那样左右滑动查看
+        table: ({ node, ...tableProps }) => (
+          <div className="markdown-table-wrapper">
+            <table {...tableProps} />
+          </div>
+        ),
         a: (aProps) => {
           const href = aProps.href || "";
           if (/\.(aac|mp3|opus|wav)$/.test(href)) {
