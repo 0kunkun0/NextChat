@@ -248,8 +248,12 @@ export function isModelNotavailableInServer(
   for (const providerName of providerNamesArray) {
     // if model provider is bytedance, use model config name to check if not avaliable
     if (providerName === ServiceProvider.ByteDance) {
-      return !Object.values(modelTable).filter((v) => v.name === modelName)?.[0]
-        ?.available;
+      if (providerName === ServiceProvider.ByteDance) {
+        const isAvailable = !Object.values(modelTable).filter(
+          (v) => v.name === modelName,
+        )?.[0]?.available;
+        if (!isAvailable) continue; // 如果 ByteDance 不可用，跳过当前循环，继续检查下一个 provider
+      }
     }
     const fullName = `${modelName}@${providerName.toLowerCase()}`;
     if (modelTable?.[fullName]?.available === true) return false;
