@@ -1,4 +1,3 @@
-import { getClientConfig } from "../config/client";
 import { ApiPath, STORAGE_KEY, StoreKey } from "../constant";
 import { createPersistStore } from "../utils/store";
 import {
@@ -19,7 +18,6 @@ export interface WebDavConfig {
   password: string;
 }
 
-const isApp = !!getClientConfig()?.isApp;
 export type SyncStore = GetStoreState<typeof useSyncStore>;
 
 const DEFAULT_SYNC_STATE = {
@@ -68,11 +66,11 @@ export const useSyncStore = createPersistStore(
 
     export() {
       const state = getLocalAppState();
-      const datePart = isApp
-        ? `${new Date().toLocaleDateString().replace(/\//g, "_")} ${new Date()
-            .toLocaleTimeString()
-            .replace(/:/g, "_")}`
-        : new Date().toLocaleString();
+      // toLocaleString() 里带 "/" 和 ":"，在 Windows 上是非法文件名字符，
+      // 统一替换掉，避免浏览器把文件名改写甚至下载失败
+      const datePart = new Date()
+        .toLocaleString()
+        .replace(/[/\\:*?"<>|]/g, "_");
 
       const fileName = `Backup-${datePart}.json`;
       downloadAs(JSON.stringify(state), fileName);
@@ -82,9 +80,14 @@ export const useSyncStore = createPersistStore(
       const rawContent = await readFromFile();
 
       try {
-        const remoteState = JSON.parse(rawContent) as AppState;
+        // 备份常常是手工用编辑器改过的，可能带 UTF-8 BOM（Windows 记事本默认），
+        // JSON.parse 会直接报错，这里先去掉
+        const remoteState = JSON.parse(
+          rawContent.replace(/^\uFEFF/, ""),
+        ) as AppState;
         const localState = getLocalAppState();
-        mergeAppState(localState, remoteState);
+        // 导入备份：同 id 的消息以备份为准，否则备份里的修改会被本地旧内容吃掉
+        mergeAppState(localState, remoteState, true);
         setLocalAppState(localState);
         location.reload();
       } catch (e) {

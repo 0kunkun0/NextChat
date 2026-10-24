@@ -55,6 +55,8 @@ export type AppState = {
 type Merger<T extends keyof AppState, U = AppState[T]> = (
   localState: U,
   remoteState: U,
+  /** true 时同 id 的内容以远程（备份）为准；同步时保持“取并集” */
+  preferRemote?: boolean,
 ) => U;
 
 type StateMerger = {
@@ -63,7 +65,7 @@ type StateMerger = {
 
 // we merge remote state to local state
 const MergeStates: StateMerger = {
-  [StoreKey.Chat]: (localState, remoteState) => {
+  [StoreKey.Chat]: (localState, remoteState, preferRemote = false) => {
     // merge sessions
     const localSessions: Record<string, ChatSession> = {};
     localState.sessions.forEach((s) => (localSessions[s.id] = s));
@@ -82,6 +84,15 @@ const MergeStates: StateMerger = {
         remoteSession.messages.forEach((m) => {
           if (!localMessageIds.has(m.id)) {
             localSession.messages.push(m);
+          } else if (preferRemote) {
+            // 导入备份时以备份为准。
+            // 否则“在备份里改了一条消息再导入”会被本地旧内容静默覆盖，
+            // 表现就像是新加的换行/空行被吞掉了。
+            const index = localSession.messages.findIndex((v) => v.id === m.id);
+            localSession.messages[index] = {
+              ...localSession.messages[index],
+              ...m,
+            };
           }
         });
 
@@ -134,12 +145,22 @@ export function setLocalAppState(appState: AppState) {
   });
 }
 
-export function mergeAppState(localState: AppState, remoteState: AppState) {
+/**
+ * 把远程状态合并到本地状态。
+ *
+ * @param preferRemote 导入备份时传 true：同 id 的消息以备份内容为准，
+ *   保证“改备份再导入”的修改能生效；同步（双向合并）时保持 false，只取并集。
+ */
+export function mergeAppState(
+  localState: AppState,
+  remoteState: AppState,
+  preferRemote: boolean = false,
+) {
   Object.keys(localState).forEach(<T extends keyof AppState>(k: string) => {
     const key = k as T;
     const localStoreState = localState[key];
     const remoteStoreState = remoteState[key];
-    MergeStates[key](localStoreState, remoteStoreState);
+    MergeStates[key](localStoreState, remoteStoreState, preferRemote);
   });
 
   return localState;
