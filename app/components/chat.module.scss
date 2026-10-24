@@ -97,6 +97,18 @@
       align-items: center;
       justify-content: center;
     }
+
+    /* 气泡上的操作按钮高度只有 16px，图标不能被自身 intrinsic 尺寸撑爆 */
+    .icon {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+
+      svg {
+        width: 16px;
+        height: 16px;
+      }
+    }
   }
 }
 
