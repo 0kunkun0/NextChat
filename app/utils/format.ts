@@ -16,6 +16,11 @@ export function* chunks(s: string, maxBytes = 1000 * 1000) {
   const decoder = new TextDecoder("utf-8");
   let buf = new TextEncoder().encode(s);
   while (buf.length) {
+    // 整段都放得下就直接返回，别为了切分把一小段也拆成两片
+    if (buf.length <= maxBytes) {
+      yield decoder.decode(buf);
+      return;
+    }
     let i = buf.lastIndexOf(32, maxBytes + 1);
     // If no space found, try forward search
     if (i < 0) i = buf.indexOf(32, maxBytes);
@@ -55,4 +60,26 @@ export function normalizeBlankLines(text: string) {
       return BLANK_LINE.test(line) ? "" : line;
     })
     .join("\n");
+}
+
+/**
+ * cyrb53：快速字符串哈希（53 bit），用于判断某段内容自上次上传后是否变化。
+ * 不要求密码学强度，只要求同内容同结果、改一个字符结果就变。
+ */
+export function hashString(str: string) {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
 }

@@ -246,6 +246,9 @@ const en: LocaleType = {
       Download: "Download",
       Uploading: "Uploading",
       UploadSuccess: "Upload Success",
+      UploadSuccessSkipped: (skipped: number) =>
+        `Upload Success (skipped ${skipped} unchanged item(s))`,
+      NothingChanged: "Nothing to upload",
       UploadFailed: "Upload Failed",
       Downloading: "Downloading",
       DownloadSuccess: "Download Success",

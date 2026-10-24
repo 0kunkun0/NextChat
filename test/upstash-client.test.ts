@@ -1,7 +1,7 @@
 import { TextDecoder, TextEncoder } from "util";
 import { createUpstashClient } from "../app/utils/cloud/upstash";
 
-// jsdom 没有 TextEncoder/TextDecoder，而分片逻辑（utils/format.ts）依赖它们
+// jsdom 没有 TextEncoder/TextDecoder，分片逻辑依赖它们
 if (typeof globalThis.TextEncoder === "undefined") {
   (globalThis as any).TextEncoder = TextEncoder;
 }
@@ -22,51 +22,62 @@ function makeSyncStore() {
   } as any;
 }
 
-describe("upstash client upload", () => {
-  const calls: string[] = [];
-  const originalFetch = globalThis.fetch;
+/** 伪造 Upstash REST 接口，把 key/value 存在内存 Map 里 */
+function installFakeUpstash() {
+  const kv = new Map<string, string>();
+  const writes: string[] = [];
 
-  beforeEach(() => {
-    calls.length = 0;
-    (globalThis as any).fetch = async (url: string) => {
-      calls.push(String(url));
-      // 让每个请求有一点延迟，模拟真实往返
-      await new Promise((resolve) => setTimeout(resolve, 1));
-      return {
-        ok: true,
-        status: 200,
-        statusText: "OK",
-        json: async () => ({ result: "1" }),
-        text: async () => "",
-      } as any;
-    };
-  });
+  (globalThis as any).fetch = async (url: string, init: any = {}) => {
+    const u = new URL(String(url), "http://localhost");
+    const match = u.pathname.match(/^\/api\/upstash\/(get|set)\/(.+?)\/?$/);
+    if (!match) throw new Error("unexpected url: " + url);
+    const [, action, key] = match;
 
-  afterEach(() => {
-    (globalThis as any).fetch = originalFetch;
-  });
+    if (action === "set") {
+      kv.set(key, String(init.body ?? ""));
+      writes.push(key);
+    }
 
-  test("writes every chunk and stores the chunk count last", async () => {
-    // ~1.8MB，会被切成多片
-    const state = { text: "x ".repeat(600_000) };
+    return {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => ({ result: kv.has(key) ? kv.get(key)! : null }),
+      text: async () => "",
+    } as any;
+  };
+
+  return { kv, writes };
+}
+
+describe("upstash legacy blob format", () => {
+  test("set() chunks a large payload and get() restores it exactly", async () => {
+    const { writes } = installFakeUpstash();
     const client = createUpstashClient(makeSyncStore());
+    const payload = "word ".repeat(250_000); // ~1.25MB
     const progress: Array<[number, number]> = [];
 
-    await client.upload(state, (done, total) => progress.push([done, total]));
+    await client.set("", payload, (done, total) =>
+      progress.push([done, total]),
+    );
 
-    const chunkWrites = calls.filter((url) => /-chunk-\d+/.test(url));
-    expect(chunkWrites.length).toBeGreaterThan(1);
+    expect(
+      writes.filter((key) => /-chunk-\d+$/.test(key)).length,
+    ).toBeGreaterThan(1);
+    // 分片全部写完才写总数
+    expect(writes.at(-1)).toBe("backup-chunk-count");
+    // 进度最终收敛
+    expect(progress.at(-1)?.[0]).toBe(progress.at(-1)?.[1]);
 
-    // 所有分片都写完之后，才写 chunk-count
-    expect(calls.at(-1)).toContain("-chunk-count");
-
-    // 进度最终收敛到 done === total
-    expect(progress.at(-1)).toEqual([chunkWrites.length, chunkWrites.length]);
+    await expect(client.get()).resolves.toBe(payload);
   });
 
-  test("works without a progress callback", async () => {
+  test("set() skips empty payloads", async () => {
+    const { writes } = installFakeUpstash();
     const client = createUpstashClient(makeSyncStore());
-    await expect(client.upload({ text: "small" })).resolves.toBeUndefined();
-    expect(calls.at(-1)).toContain("-chunk-count");
+
+    await client.set("", "");
+
+    expect(writes).toEqual([]);
   });
 });

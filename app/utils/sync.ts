@@ -141,7 +141,10 @@ export function getLocalAppState() {
 
 export function setLocalAppState(appState: AppState) {
   Object.entries(LocalStateSetters).forEach(([key, setter]) => {
-    setter(appState[key as keyof AppState]);
+    const value = appState[key as keyof AppState];
+    // 增量格式的备份可能只包含部分 store，缺的就不动
+    if (value === undefined || value === null) return;
+    setter(value);
   });
 }
 

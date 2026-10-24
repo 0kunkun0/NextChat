@@ -244,6 +244,9 @@ const cn = {
       Download: "下载",
       Uploading: "上传中",
       UploadSuccess: "上传成功",
+      UploadSuccessSkipped: (skipped: number) =>
+        `上传成功（跳过 ${skipped} 个未修改项）`,
+      NothingChanged: "没有需要上传的改动",
       UploadFailed: "上传失败",
       Downloading: "下载中",
       DownloadSuccess: "下载成功",

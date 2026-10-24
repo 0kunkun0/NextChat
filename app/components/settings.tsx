@@ -572,11 +572,21 @@ function SyncItems() {
                       showToast(Locale.Settings.Sync.Uploading);
                       // 先让「上传中」这一帧渲染出来，再去做 JSON 序列化 / 分片这类重活
                       await new Promise((resolve) => setTimeout(resolve, 0));
-                      await client.upload(local, (done, total) =>
+                      const stats = await client.upload(local, (done, total) =>
                         setUploadProgress({ done, total }),
                       );
                       syncStore.markUploadTime();
-                      showToast(Locale.Settings.Sync.UploadSuccess);
+                      if (stats.total === 0) {
+                        showToast(Locale.Settings.Sync.NothingChanged);
+                      } else if (stats.skipped > 0) {
+                        showToast(
+                          Locale.Settings.Sync.UploadSuccessSkipped(
+                            stats.skipped,
+                          ),
+                        );
+                      } else {
+                        showToast(Locale.Settings.Sync.UploadSuccess);
+                      }
                     } catch (e) {
                       showToast(Locale.Settings.Sync.UploadFailed);
                       console.error("[Upload]", e);
