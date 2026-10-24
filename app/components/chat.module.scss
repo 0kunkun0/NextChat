@@ -774,6 +774,8 @@
   outline: none;
   box-sizing: border-box;
   min-height: 68px;
+  /* 超过最大行数（MAX_INPUT_ROWS）后在输入框内部滚动，不再继续长高 */
+  overflow-y: auto;
 }
 
 .chat-input:focus {

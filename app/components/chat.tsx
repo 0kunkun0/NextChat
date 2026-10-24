@@ -130,6 +130,13 @@ import { RealtimeChat } from "@/app/components/realtime-chat";
 import clsx from "clsx";
 import { getAvailableClientsCount, isMcpEnabled } from "../mcp/actions";
 
+/**
+ * 输入框最多显示的行数。
+ * 手机上输入很多换行时，输入框会一路长高，把发送按钮顶出屏幕；
+ * 超过这个行数后只在框内滚动。
+ */
+const MAX_INPUT_ROWS = 6;
+
 const localStorage = safeLocalStorage();
 
 const ttsPlayer = createTTSPlayer();
@@ -1130,7 +1137,7 @@ function _Chat() {
     () => {
       const rows = inputRef.current ? autoGrowTextArea(inputRef.current) : 1;
       const inputRows = Math.min(
-        20,
+        MAX_INPUT_ROWS,
         Math.max(2 + Number(!isMobileScreen), rows),
       );
       setInputRows(inputRows);
