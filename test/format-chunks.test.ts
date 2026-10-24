@@ -20,16 +20,18 @@ describe("chunks", () => {
   test("splits on spaces so no word is cut in half", () => {
     // maxBytes small enough to force a split at the space boundary
     const result = [...chunks("hello world", 5)];
-    expect(result).toEqual(["hello", "world"]);
+    expect(result.length).toBe(2);
+    expect(result[0].trim()).toBe("hello");
+    expect(result[1].trim()).toBe("world");
   });
 
-  test("concatenating the pieces reproduces the original words", () => {
+  test("concatenating the pieces reproduces the original text exactly", () => {
     const input = "the quick brown fox jumps over the lazy dog";
     const result = [...chunks(input, 8)];
     // every produced chunk is non-empty
     expect(result.every((c) => c.length > 0)).toBe(true);
-    // spaces were the only thing dropped between chunks
-    expect(result.join(" ")).toBe(input);
+    // 切分点上的空格被保留了，直接拼接即可还原
+    expect(result.join("")).toBe(input);
   });
 
   test("never splits in the middle of a multi-byte character", () => {

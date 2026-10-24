@@ -61,6 +61,7 @@ const cn = {
       VariantPrev: "上一个候选回复",
       VariantNext: "下一个候选回复",
       Regenerate: "重新生成",
+      Debug: "原始数据",
     },
     Commands: {
       new: "新建聊天",
@@ -110,6 +111,17 @@ const cn = {
       copyLastCode: "复制最后一个代码块",
       showShortcutKey: "显示快捷方式",
       clearContext: "清除上下文",
+    },
+    Debug: {
+      Title: "消息原始数据",
+      Summary: (length: number, newlines: number, blankLines: number) =>
+        `长度 ${length} · 换行 ${newlines} 个 · 空行 ${blankLines} 处`,
+      PreprocessChanged: "预处理：有改动（渲染输入 ≠ 存储原文）",
+      PreprocessUnchanged: "预处理：无改动（渲染输入 = 存储原文）",
+      MarkdownInput: "渲染输入（⏎ 表示换行符）",
+      RawJson: "原始消息 JSON",
+      CopyMarkdown: "复制 Markdown",
+      CopyJson: "复制 JSON",
     },
   },
   Export: {

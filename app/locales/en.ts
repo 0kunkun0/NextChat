@@ -62,6 +62,7 @@ const en: LocaleType = {
       VariantPrev: "Previous Reply",
       VariantNext: "Next Reply",
       Regenerate: "Regenerate",
+      Debug: "Raw Data",
     },
     Commands: {
       new: "Start a new chat",
@@ -111,6 +112,17 @@ const en: LocaleType = {
       copyLastCode: "Copy Last Code Block",
       showShortcutKey: "Show Shortcuts",
       clearContext: "Clear Context",
+    },
+    Debug: {
+      Title: "Raw Message Data",
+      Summary: (length: number, newlines: number, blankLines: number) =>
+        `length ${length} · ${newlines} newlines · ${blankLines} blank lines`,
+      PreprocessChanged: "Preprocess: changed (input ≠ stored content)",
+      PreprocessUnchanged: "Preprocess: unchanged (input = stored content)",
+      MarkdownInput: "Markdown input (⏎ marks a newline)",
+      RawJson: "Raw message JSON",
+      CopyMarkdown: "Copy Markdown",
+      CopyJson: "Copy JSON",
     },
   },
   Export: {

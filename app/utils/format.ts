@@ -22,8 +22,10 @@ export function* chunks(s: string, maxBytes = 1000 * 1000) {
     // If there's no space at all, take all
     if (i < 0) i = buf.length;
     // This is a safe cut-off point; never half-way a multi-byte
-    yield decoder.decode(buf.slice(0, i));
-    buf = buf.slice(i + 1); // Skip space (if any)
+    yield decoder.decode(buf.slice(0, i + 1));
+    // 切分点上的空格留在这一片末尾：读端是 chunks.join("")，
+    // 原来的 `slice(i + 1)` 会把它连同空格一起丢掉，导致还原时少一个空格
+    buf = buf.slice(i + 1);
   }
 }
 

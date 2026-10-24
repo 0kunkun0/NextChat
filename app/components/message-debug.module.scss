@@ -1,0 +1,53 @@
+.message-debug {
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+  overflow: auto;
+  font-size: 12px;
+
+  .summary {
+    color: var(--black);
+    opacity: 0.8;
+  }
+
+  .preprocess {
+    margin-top: 4px;
+    color: var(--black);
+    opacity: 0.55;
+
+    &[data-changed="true"] {
+      color: var(--primary);
+      opacity: 1;
+    }
+  }
+
+  .section-title {
+    margin-top: 12px;
+    margin-bottom: 4px;
+    font-weight: bold;
+    color: var(--black);
+  }
+
+  .code {
+    margin: 0;
+    padding: 10px;
+    border-radius: 6px;
+    border: var(--border-in-light);
+    background-color: var(--gray);
+    color: var(--black);
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 38vh;
+    overflow: auto;
+    font-family:
+      ui-monospace,
+      SFMono-Regular,
+      SF Mono,
+      Menlo,
+      Consolas,
+      monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    user-select: text;
+  }
+}

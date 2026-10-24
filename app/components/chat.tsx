@@ -33,6 +33,7 @@ import ConfirmIcon from "../icons/confirm.svg";
 import CloseIcon from "../icons/close.svg";
 import CancelIcon from "../icons/cancel.svg";
 import ImageIcon from "../icons/image.svg";
+import EyeIcon from "../icons/eye.svg";
 
 import LightIcon from "../icons/light.svg";
 import DarkIcon from "../icons/dark.svg";
@@ -116,6 +117,7 @@ import { useMaskStore } from "../store/mask";
 import { ChatCommandPrefix, useChatCommand, useCommand } from "../command";
 import { prettyObject } from "../utils/format";
 import { ExportMessageModal } from "./exporter";
+import { MessageDebugModal } from "./message-debug";
 import { getClientConfig } from "../config/client";
 import { useAllModels } from "../utils/hooks";
 import { ClientApi, MultimodalContent } from "../client/api";
@@ -1070,6 +1072,8 @@ function _Chat() {
   const fontFamily = config.fontFamily;
 
   const [showExport, setShowExport] = useState(false);
+  // 调试用：查看某条消息的原始数据（存储原文 / 渲染输入 / JSON）
+  const [debugMessage, setDebugMessage] = useState<ChatMessage | null>(null);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [userInput, setUserInput] = useState("");
@@ -2030,6 +2034,11 @@ function _Chat() {
                                           )
                                         }
                                       />
+                                      <ChatAction
+                                        text={Locale.Chat.Actions.Debug}
+                                        icon={<EyeIcon />}
+                                        onClick={() => setDebugMessage(message)}
+                                      />
                                       {config.ttsConfig.enable && (
                                         <ChatAction
                                           text={
@@ -2288,6 +2297,13 @@ function _Chat() {
 
       {showShortcutKeyModal && (
         <ShortcutKeyModal onClose={() => setShowShortcutKeyModal(false)} />
+      )}
+
+      {debugMessage && (
+        <MessageDebugModal
+          message={debugMessage}
+          onClose={() => setDebugMessage(null)}
+        />
       )}
     </>
   );

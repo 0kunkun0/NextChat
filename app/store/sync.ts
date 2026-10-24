@@ -89,7 +89,9 @@ export const useSyncStore = createPersistStore(
         // 导入备份：同 id 的消息以备份为准，否则备份里的修改会被本地旧内容吃掉
         mergeAppState(localState, remoteState, true);
         setLocalAppState(localState);
-        location.reload();
+        // 持久化是异步写 IndexedDB 的，立刻 reload 有可能把刚导入的数据丢掉
+        // （低配设备上尤其明显），这里先给写入留一点时间
+        setTimeout(() => location.reload(), 500);
       } catch (e) {
         console.error("[Import]", e);
         showToast(Locale.Settings.Sync.ImportFailed);
