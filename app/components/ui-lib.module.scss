@@ -100,12 +100,19 @@
 
   --modal-padding: 20px;
 
+  /* 弹窗永远不超出视口：标题栏和关闭按钮必须始终可见，
+     内容超出时由 .modal-content 自己滚动（手机上是 flex-end 对齐，
+     一旦容器比视口高，超出的部分会被切在上方） */
+  display: flex;
+  flex-direction: column;
+  max-height: calc(var(--full-height) - 40px);
+  overflow: hidden;
+
   &-max {
     width: 95vw;
     max-width: unset;
-    height: 95vh;
-    display: flex;
-    flex-direction: column;
+    /* 不要用 95vh：移动端 vh 包含地址栏那一条，会比可视区域高 */
+    height: calc(var(--full-height) - 40px);
 
     .modal-content {
       max-height: unset !important;
@@ -146,6 +153,8 @@
     max-height: 40vh;
     padding: var(--modal-padding);
     overflow: auto;
+    /* flex 子项默认 min-height:auto 会被内容撑住，导致父容器被迫变高 */
+    min-height: 0;
   }
 
   .modal-footer {

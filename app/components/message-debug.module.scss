@@ -1,9 +1,9 @@
 .message-debug {
   display: flex;
   flex-direction: column;
-  max-height: 70vh;
-  overflow: auto;
   font-size: 12px;
+  /* 高度交给 Modal 的 .modal-content 控制（它自己会滚动），
+     这里不再限高，否则移动端会出现嵌套滚动条、把弹窗撑高 */
 
   .summary {
     color: var(--black);
@@ -37,8 +37,6 @@
     color: var(--black);
     white-space: pre-wrap;
     word-break: break-all;
-    max-height: 38vh;
-    overflow: auto;
     font-family:
       ui-monospace,
       SFMono-Regular,
