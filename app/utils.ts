@@ -259,10 +259,12 @@ export function getMessageTextContentWithoutThinking(message: RequestMessage) {
     }
   }
 
-  // Filter out thinking lines (starting with "> ")
+  // 只过滤思考过程（本 fork 把 reasoning 渲染成 "> " 开头的引用行）。
+  // 注意不要顺手把空行也过滤掉：这里的内容是要发回给模型的历史，
+  // 之前 `line.trim() !== ""` 会把所有空行删掉，等于把上一轮回答压成一大段。
   return content
     .split("\n")
-    .filter((line) => !line.startsWith("> ") && line.trim() !== "")
+    .filter((line) => !line.startsWith("> "))
     .join("\n")
     .trim();
 }
