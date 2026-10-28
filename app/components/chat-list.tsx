@@ -17,7 +17,6 @@ import { MaskAvatar } from "./mask";
 import { Mask } from "../store/mask";
 import { useRef, useEffect } from "react";
 import { showConfirm } from "./ui-lib";
-import { useMobileScreen } from "../utils";
 import clsx from "clsx";
 
 export function ChatItem(props: {
@@ -113,7 +112,6 @@ export function ChatList(props: { narrow?: boolean }) {
   );
   const chatStore = useChatStore();
   const navigate = useNavigate();
-  const isMobileScreen = useMobileScreen();
 
   const onDragEnd: OnDragEndResponder = (result) => {
     const { destination, source } = result;
@@ -154,10 +152,8 @@ export function ChatList(props: { narrow?: boolean }) {
                   selectSession(i);
                 }}
                 onDelete={async () => {
-                  if (
-                    (!props.narrow && !isMobileScreen) ||
-                    (await showConfirm(Locale.Home.DeleteChat))
-                  ) {
+                  // 不管桌面还是移动端，删对话之前都先确认一次
+                  if (await showConfirm(Locale.Home.DeleteChat)) {
                     chatStore.deleteSession(i);
                   }
                 }}
