@@ -31,6 +31,7 @@
     "axios": "^1.7.5",
     "clsx": "^2.1.1",
     "emoji-picker-react": "^4.9.2",
+    "fflate": "^0.8.2",
     "fuse.js": "^7.0.0",
     "heic2any": "^0.0.4",
     "html-to-image": "^1.11.11",
@@ -93,5 +94,12 @@
   "resolutions": {
     "lint-staged/yaml": "^2.2.2"
   },
+  "browserslist": [
+    "iOS >= 15",
+    "last 2 Chrome versions",
+    "last 2 Safari versions",
+    "last 2 Firefox versions",
+    "not dead"
+  ],
   "packageManager": "yarn@1.22.19"
 }

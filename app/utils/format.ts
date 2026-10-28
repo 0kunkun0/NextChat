@@ -12,25 +12,30 @@ export function prettyObject(msg: any) {
   return ["```json", msg, "```"].join("\n");
 }
 
+/**
+ * 按字节把字符串切成若干片（每片不超过 maxBytes）。
+ *
+ * 以前是按空格切：压缩后的 base64 里没有空格，一整段会被塞进同一片，
+ * 直接超过 Upstash 单请求上限；而且每次 `buf.slice(i + 1)` 都会复制剩余缓冲区，
+ * 片数多时总复制量是 O(N²)。现在只编码一次、用 subarray 视图切片。
+ */
 export function* chunks(s: string, maxBytes = 1000 * 1000) {
+  const buf = new TextEncoder().encode(s);
   const decoder = new TextDecoder("utf-8");
-  let buf = new TextEncoder().encode(s);
-  while (buf.length) {
-    // 整段都放得下就直接返回，别为了切分把一小段也拆成两片
-    if (buf.length <= maxBytes) {
-      yield decoder.decode(buf);
-      return;
+  let start = 0;
+
+  while (start < buf.length) {
+    let end = Math.min(start + maxBytes, buf.length);
+    // 不要把一个多字节字符切成两半：退到 UTF-8 起始字节
+    if (end < buf.length) {
+      while (end > start && (buf[end] & 0xc0) === 0x80) {
+        end -= 1;
+      }
+      // 单个字符就超过 maxBytes（几乎不可能），硬切
+      if (end === start) end = Math.min(start + maxBytes, buf.length);
     }
-    let i = buf.lastIndexOf(32, maxBytes + 1);
-    // If no space found, try forward search
-    if (i < 0) i = buf.indexOf(32, maxBytes);
-    // If there's no space at all, take all
-    if (i < 0) i = buf.length;
-    // This is a safe cut-off point; never half-way a multi-byte
-    yield decoder.decode(buf.slice(0, i + 1));
-    // 切分点上的空格留在这一片末尾：读端是 chunks.join("")，
-    // 原来的 `slice(i + 1)` 会把它连同空格一起丢掉，导致还原时少一个空格
-    buf = buf.slice(i + 1);
+    yield decoder.decode(buf.subarray(start, end));
+    start = end;
   }
 }
 

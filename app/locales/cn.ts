@@ -252,6 +252,8 @@ const cn = {
       DownloadSuccess: "下载成功",
       DownloadFailed: "下载失败",
       NoRemoteData: "云端暂无数据",
+      Cancel: "取消",
+      Canceled: "已取消",
       Never: "从未",
       LastUploadDownload: (uploadAt: string, downloadAt: string) =>
         `[上传] ${uploadAt}；[下载] ${downloadAt}`,
@@ -278,6 +280,12 @@ const cn = {
           Endpoint: "WebDAV 地址",
           UserName: "用户名",
           Password: "密码",
+        },
+
+        Compression: {
+          Title: "压缩上传",
+          SubTitle:
+            "gzip 压缩后上传，可明显减少流量；解压用纯 JS 实现，iOS 15 等老设备也能读取",
         },
 
         UpStash: {

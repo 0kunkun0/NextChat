@@ -254,6 +254,8 @@ const en: LocaleType = {
       DownloadSuccess: "Download Success",
       DownloadFailed: "Download Failed",
       NoRemoteData: "No data in cloud",
+      Cancel: "Cancel",
+      Canceled: "Canceled",
       Never: "Never",
       LastUploadDownload: (uploadAt: string, downloadAt: string) =>
         `[Upload] ${uploadAt}; [Download] ${downloadAt}`,
@@ -281,6 +283,12 @@ const en: LocaleType = {
           Endpoint: "WebDAV Endpoint",
           UserName: "User Name",
           Password: "Password",
+        },
+
+        Compression: {
+          Title: "Compress uploads",
+          SubTitle:
+            "gzip before uploading to save bandwidth; decompression is pure JS, so old devices such as iOS 15 can read it",
         },
 
         UpStash: {

@@ -24,8 +24,9 @@ async function handle(
     );
   }
 
-  // only allow upstash get and set method
-  if (params.action !== "get" && params.action !== "set") {
+  // 只放开 upstash 的 get / set / pipeline（pipeline 用于批量读写）
+  const allowedActions = ["get", "set", "pipeline"];
+  if (!allowedActions.includes(params.action)) {
     console.log("[Upstash Route] forbidden action ", params.action);
     return NextResponse.json(
       {
@@ -38,17 +39,27 @@ async function handle(
     );
   }
 
-  const targetUrl = `${endpoint}/${params.action}/${params.key.join("/")}`;
+  // pipeline 没有 key：POST <endpoint>/pipeline，body 是命令数组
+  const targetUrl =
+    params.action === "pipeline"
+      ? `${endpoint}/pipeline`
+      : `${endpoint}/${params.action}/${params.key.join("/")}`;
 
   const method = req.method;
   const shouldNotHaveBody = ["get", "head"].includes(
     method?.toLowerCase() ?? "",
   );
 
+  const headers: Record<string, string> = {
+    authorization: req.headers.get("authorization") ?? "",
+  };
+  const contentType = req.headers.get("content-type");
+  if (contentType) {
+    headers["content-type"] = contentType;
+  }
+
   const fetchOptions: RequestInit = {
-    headers: {
-      authorization: req.headers.get("authorization") ?? "",
-    },
+    headers,
     body: shouldNotHaveBody ? null : req.body,
     method,
     // @ts-ignore

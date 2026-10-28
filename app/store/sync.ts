@@ -25,6 +25,13 @@ const DEFAULT_SYNC_STATE = {
   useProxy: true,
   proxyUrl: ApiPath.Cors as string,
 
+  /**
+   * 是否把内容 gzip 压缩后再上传。
+   * 压缩/解压依赖浏览器原生的 CompressionStream / DecompressionStream
+   * （Chrome 80+ / Safari 16.4+），iOS 15 上没有，所以默认关闭。
+   */
+  useCompression: false,
+
   webdav: {
     endpoint: "",
     username: "",

@@ -16,6 +16,8 @@ const config: Config = {
   testPathIgnorePatterns: ["/node_modules/", "<rootDir>/NextChat/"],
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/$1",
+    // fflate 默认走 ESM，jest 里用它的 CJS 构建
+    "^fflate$": "<rootDir>/node_modules/fflate/lib/index.cjs",
   },
   extensionsToTreatAsEsm: [".ts", ".tsx"],
   injectGlobals: true,

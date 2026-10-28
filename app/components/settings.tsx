@@ -89,7 +89,7 @@ import { useMaskStore } from "../store/mask";
 import { ProviderType } from "../utils/cloud";
 import { TTSConfigList } from "./tts-config";
 import { RealtimeConfigList } from "./realtime-chat/realtime-config";
-import { createUpstashClient } from "../utils/cloud/upstash";
+import { createUpstashClient, isAbortError } from "../utils/cloud/upstash";
 import { getLocalAppState, setLocalAppState } from "../utils/sync";
 
 function EditPromptModal(props: { id: string; onClose: () => void }) {
@@ -481,6 +481,21 @@ function SyncConfigModal(props: { onClose?: () => void }) {
                 }}
               ></PasswordInput>
             </ListItem>
+            <ListItem
+              title={Locale.Settings.Sync.Config.Compression.Title}
+              subTitle={Locale.Settings.Sync.Config.Compression.SubTitle}
+            >
+              <input
+                type="checkbox"
+                checked={syncStore.useCompression}
+                onChange={(e) => {
+                  syncStore.update(
+                    (config) =>
+                      (config.useCompression = e.currentTarget.checked),
+                  );
+                }}
+              ></input>
+            </ListItem>
           </List>
         )}
       </Modal>
@@ -503,12 +518,22 @@ function SyncItems() {
     done: number;
     total: number;
   } | null>(null);
+  // 正在进行的同步任务：点错了可以立刻取消
+  const [syncJob, setSyncJob] = useState<{
+    type: "upload" | "download";
+    controller: AbortController;
+  } | null>(null);
 
   const uploadText = !uploadProgress
     ? Locale.Settings.Sync.Upload
     : uploadProgress.total > 0
     ? `${Locale.Settings.Sync.Uploading} ${uploadProgress.done}/${uploadProgress.total}`
     : Locale.Settings.Sync.Uploading;
+
+  const downloadText =
+    syncJob?.type === "download"
+      ? Locale.Settings.Sync.Downloading
+      : Locale.Settings.Sync.Download;
 
   // 云端数据的状态文案：分别显示上次上传 / 下载的时间
   const syncStateText = (() => {
@@ -563,10 +588,14 @@ function SyncItems() {
                 <IconButton
                   icon={<UploadIcon />}
                   text={uploadText}
-                  disabled={uploadProgress !== null}
+                  disabled={syncJob !== null}
                   onClick={async () => {
+                    const controller = new AbortController();
+                    setSyncJob({ type: "upload", controller });
                     try {
-                      const client = createUpstashClient(syncStore);
+                      const client = createUpstashClient(syncStore, {
+                        signal: controller.signal,
+                      });
                       const local = getLocalAppState();
                       setUploadProgress({ done: 0, total: 0 });
                       showToast(Locale.Settings.Sync.Uploading);
@@ -588,34 +617,59 @@ function SyncItems() {
                         showToast(Locale.Settings.Sync.UploadSuccess);
                       }
                     } catch (e) {
-                      showToast(Locale.Settings.Sync.UploadFailed);
-                      console.error("[Upload]", e);
+                      if (isAbortError(e)) {
+                        showToast(Locale.Settings.Sync.Canceled);
+                      } else {
+                        showToast(Locale.Settings.Sync.UploadFailed);
+                        console.error("[Upload]", e);
+                      }
                     } finally {
                       setUploadProgress(null);
+                      setSyncJob(null);
                     }
                   }}
                 />
                 <IconButton
                   icon={<DownloadIcon />}
-                  text={Locale.Settings.Sync.Download}
+                  text={downloadText}
+                  disabled={syncJob !== null}
                   onClick={async () => {
+                    const controller = new AbortController();
+                    setSyncJob({ type: "download", controller });
                     try {
                       showToast(Locale.Settings.Sync.Downloading);
-                      const client = createUpstashClient(syncStore);
-                      const remote = await client.download();
+                      const client = createUpstashClient(syncStore, {
+                        signal: controller.signal,
+                      });
+                      // 把本地状态传进去：和远端哈希一致的项目直接跳过，不再下载
+                      const remote = await client.download(getLocalAppState());
                       if (!remote) {
                         showToast(Locale.Settings.Sync.NoRemoteData);
                         return;
                       }
+                      // 只有完整下载成功才会覆盖本地数据
                       setLocalAppState(remote);
                       syncStore.markDownloadTime();
                       showToast(Locale.Settings.Sync.DownloadSuccess);
                     } catch (e) {
-                      showToast(Locale.Settings.Sync.DownloadFailed);
-                      console.error("[Download]", e);
+                      if (isAbortError(e)) {
+                        showToast(Locale.Settings.Sync.Canceled);
+                      } else {
+                        showToast(Locale.Settings.Sync.DownloadFailed);
+                        console.error("[Download]", e);
+                      }
+                    } finally {
+                      setSyncJob(null);
                     }
                   }}
                 />
+                {syncJob && (
+                  <IconButton
+                    icon={<CloseIcon />}
+                    text={Locale.Settings.Sync.Cancel}
+                    onClick={() => syncJob.controller.abort()}
+                  />
+                )}
               </>
             )}
           </div>
