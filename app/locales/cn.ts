@@ -52,6 +52,7 @@ const cn = {
       PinToastContent: "已将 1 条对话固定至预设提示词",
       PinToastAction: "查看",
       Delete: "删除",
+      DeleteConfirm: "确认删除这条消息？",
       Edit: "编辑",
       FullScreen: "全屏",
       RefreshTitle: "刷新标题",

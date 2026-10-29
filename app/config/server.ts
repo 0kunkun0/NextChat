@@ -119,10 +119,15 @@ function getApiKey(keys?: string) {
   const randomIndex = Math.floor(Math.random() * apiKeys.length);
   const apiKey = apiKeys[randomIndex];
   if (apiKey) {
+    // 不要打完整 key：日志经常被截图 / 贴到 issue 里
+    const maskedKey =
+      apiKey.length <= 8
+        ? "***"
+        : `${apiKey.slice(0, 6)}...${apiKey.slice(-4)}`;
     console.log(
       `[Server Config] using ${randomIndex + 1} of ${
         apiKeys.length
-      } api key - ${apiKey}`,
+      } api key - ${maskedKey}`,
     );
   }
 

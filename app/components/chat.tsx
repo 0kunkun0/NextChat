@@ -1295,7 +1295,9 @@ function _Chat() {
     );
   };
 
-  const onDelete = (msgId: string) => {
+  const onDelete = async (msgId: string) => {
+    // 消息气泡上的删除按钮：先确认，避免手滑删掉整条回复
+    if (!(await showConfirm(Locale.Chat.Actions.DeleteConfirm))) return;
     deleteMessage(msgId);
   };
 
