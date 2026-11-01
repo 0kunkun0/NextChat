@@ -37,13 +37,14 @@ import Locale, { AllLangs, ALL_LANG_OPTIONS, Lang } from "../locales";
 import { useNavigate } from "react-router-dom";
 
 import chatStyle from "./chat.module.scss";
-import { useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import {
   copyToClipboard,
   downloadAs,
   getMessageImages,
   readFromFile,
 } from "../utils";
+import { CONTEXT_PAGE_SIZE, getContextWindow } from "../utils/context-prompt";
 import { Updater } from "../typing";
 import { ModelConfigList } from "./model-config";
 import { FileName, Path } from "../constant";
@@ -257,11 +258,12 @@ export function MaskConfig(props: {
   );
 }
 
-function ContextPromptItem(props: {
+const ContextPromptItem = memo(function ContextPromptItem(props: {
   index: number;
   prompt: ChatMessage;
-  update: (prompt: ChatMessage) => void;
-  remove: () => void;
+  draggable: boolean;
+  onUpdate: (index: number, prompt: ChatMessage) => void;
+  onRemove: (index: number) => void;
 }) {
   const [focusingInput, setFocusingInput] = useState(false);
 
@@ -269,14 +271,16 @@ function ContextPromptItem(props: {
     <div className={chatStyle["context-prompt-row"]}>
       {!focusingInput && (
         <>
-          <div className={chatStyle["context-drag"]}>
-            <DragIcon />
-          </div>
+          {props.draggable && (
+            <div className={chatStyle["context-drag"]}>
+              <DragIcon />
+            </div>
+          )}
           <Select
             value={props.prompt.role}
             className={chatStyle["context-role"]}
             onChange={(e) =>
-              props.update({
+              props.onUpdate(props.index, {
                 ...props.prompt,
                 role: e.target.value as any,
               })
@@ -303,7 +307,7 @@ function ContextPromptItem(props: {
           window?.getSelection()?.removeAllRanges();
         }}
         onInput={(e) =>
-          props.update({
+          props.onUpdate(props.index, {
             ...props.prompt,
             content: e.currentTarget.value as any,
           })
@@ -313,42 +317,75 @@ function ContextPromptItem(props: {
         <IconButton
           icon={<DeleteIcon />}
           className={chatStyle["context-delete-button"]}
-          onClick={() => props.remove()}
+          onClick={() => props.onRemove(props.index)}
           bordered
         />
       )}
     </div>
   );
-}
+});
 
 export function ContextPrompts(props: {
   context: ChatMessage[];
   updateContext: (updater: (context: ChatMessage[]) => void) => void;
 }) {
   const context = props.context;
+  // 只渲染最近的一部分：长对话里每条消息都是一个 textarea，
+  // 几百条全量渲染会把低端设备的内存吃爆（打开就直接崩）
+  const [visibleCount, setVisibleCount] = useState(CONTEXT_PAGE_SIZE);
 
-  const addContextPrompt = (prompt: ChatMessage, i: number) => {
-    props.updateContext((context) => context.splice(i, 0, prompt));
-  };
+  // updater 每次渲染都是新函数，放进 ref 里，下面的回调才能保持稳定引用；
+  // 配合 memo，敲字时只会重渲染当前那一条，而不是整张列表
+  const updateContextRef = useRef(props.updateContext);
+  updateContextRef.current = props.updateContext;
 
-  const removeContextPrompt = (i: number) => {
-    props.updateContext((context) => context.splice(i, 1));
-  };
+  const update = useCallback(
+    (updater: (context: ChatMessage[]) => void) =>
+      updateContextRef.current(updater),
+    [],
+  );
 
-  const updateContextPrompt = (i: number, prompt: ChatMessage) => {
-    props.updateContext((context) => {
-      const images = getMessageImages(context[i]);
-      context[i] = prompt;
-      if (images.length > 0) {
-        const text = getMessageTextContent(context[i]);
-        const newContext: MultimodalContent[] = [{ type: "text", text }];
-        for (const img of images) {
-          newContext.push({ type: "image_url", image_url: { url: img } });
+  const updateContextPrompt = useCallback(
+    (i: number, prompt: ChatMessage) => {
+      update((context) => {
+        const images = getMessageImages(context[i]);
+        context[i] = prompt;
+        if (images.length > 0) {
+          const text = getMessageTextContent(context[i]);
+          const newContext: MultimodalContent[] = [{ type: "text", text }];
+          for (const img of images) {
+            newContext.push({ type: "image_url", image_url: { url: img } });
+          }
+          context[i].content = newContext;
         }
-        context[i].content = newContext;
-      }
-    });
-  };
+      });
+    },
+    [update],
+  );
+
+  const removeContextPrompt = useCallback(
+    (i: number) => {
+      update((context) => context.splice(i, 1));
+    },
+    [update],
+  );
+
+  const addContextPrompt = useCallback(
+    (i: number) => {
+      update((context) =>
+        context.splice(
+          i,
+          0,
+          createMessage({
+            role: "user",
+            content: "",
+            date: new Date().toLocaleString(),
+          }),
+        ),
+      );
+    },
+    [update],
+  );
 
   const onDragEnd: OnDragEndResponder = (result) => {
     if (!result.destination) {
@@ -359,78 +396,106 @@ export function ContextPrompts(props: {
       result.source.index,
       result.destination.index,
     );
-    props.updateContext((context) => {
+    update((context) => {
       context.splice(0, context.length, ...newContext);
     });
+  };
+
+  const page = getContextWindow(context.length, visibleCount);
+  const visible = page.start === 0 ? context : context.slice(page.start);
+
+  const renderItem = (c: ChatMessage, i: number) => {
+    const index = page.start + i;
+    return (
+      <ContextPromptItem
+        key={c.id || `${index}`}
+        index={index}
+        prompt={c}
+        draggable={page.draggable}
+        onUpdate={updateContextPrompt}
+        onRemove={removeContextPrompt}
+      />
+    );
+  };
+
+  const renderInsert = (i: number) => {
+    const index = page.start + i;
+    return (
+      <div
+        key={`insert-${index}`}
+        className={chatStyle["context-prompt-insert"]}
+        onClick={() => addContextPrompt(index + 1)}
+      >
+        <AddIcon />
+      </div>
+    );
   };
 
   return (
     <>
       <div className={chatStyle["context-prompt"]} style={{ marginBottom: 20 }}>
-        <DragDropContext onDragEnd={onDragEnd}>
-          <Droppable droppableId="context-prompt-list">
-            {(provided) => (
-              <div ref={provided.innerRef} {...provided.droppableProps}>
-                {context.map((c, i) => (
-                  <Draggable
-                    draggableId={c.id || i.toString()}
-                    index={i}
-                    key={c.id}
-                  >
-                    {(provided) => (
-                      <div
-                        ref={provided.innerRef}
-                        {...provided.draggableProps}
-                        {...provided.dragHandleProps}
-                      >
-                        <ContextPromptItem
-                          index={i}
-                          prompt={c}
-                          update={(prompt) => updateContextPrompt(i, prompt)}
-                          remove={() => removeContextPrompt(i)}
-                        />
-                        <div
-                          className={chatStyle["context-prompt-insert"]}
-                          onClick={() => {
-                            addContextPrompt(
-                              createMessage({
-                                role: "user",
-                                content: "",
-                                date: new Date().toLocaleString(),
-                              }),
-                              i + 1,
-                            );
-                          }}
-                        >
-                          <AddIcon />
-                        </div>
-                      </div>
-                    )}
-                  </Draggable>
-                ))}
-                {provided.placeholder}
-              </div>
-            )}
-          </Droppable>
-        </DragDropContext>
+        {page.hidden > 0 && (
+          <div className={chatStyle["context-prompt-row"]}>
+            <IconButton
+              text={Locale.Chat.EditMessage.LoadEarlier(
+                Math.min(CONTEXT_PAGE_SIZE, page.hidden),
+              )}
+              bordered
+              className={chatStyle["context-prompt-button"]}
+              onClick={() =>
+                setVisibleCount((count) => count + CONTEXT_PAGE_SIZE)
+              }
+            />
+          </div>
+        )}
 
-        {props.context.length === 0 && (
+        {page.draggable ? (
+          <DragDropContext onDragEnd={onDragEnd}>
+            <Droppable droppableId="context-prompt-list">
+              {(provided) => (
+                <div ref={provided.innerRef} {...provided.droppableProps}>
+                  {visible.map((c, i) => (
+                    <Draggable
+                      draggableId={c.id || `${page.start + i}`}
+                      index={i}
+                      key={c.id || `${page.start + i}`}
+                    >
+                      {(provided) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          {...provided.dragHandleProps}
+                        >
+                          {renderItem(c, i)}
+                          {renderInsert(i)}
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
+          </DragDropContext>
+        ) : (
+          <div>
+            {visible.map((c, i) => (
+              <div key={c.id || `${page.start + i}`}>
+                {renderItem(c, i)}
+                {renderInsert(i)}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {context.length === 0 && (
           <div className={chatStyle["context-prompt-row"]}>
             <IconButton
               icon={<AddIcon />}
               text={Locale.Context.Add}
               bordered
               className={chatStyle["context-prompt-button"]}
-              onClick={() =>
-                addContextPrompt(
-                  createMessage({
-                    role: "user",
-                    content: "",
-                    date: "",
-                  }),
-                  props.context.length,
-                )
-              }
+              onClick={() => addContextPrompt(0)}
             />
           </div>
         )}

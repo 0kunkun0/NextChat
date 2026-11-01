@@ -41,6 +41,7 @@ const en: LocaleType = {
         Title: "Topic",
         SubTitle: "Change the current topic",
       },
+      LoadEarlier: (count: number) => `Load ${count} older messages`,
     },
     Actions: {
       ChatList: "Go To Chat List",

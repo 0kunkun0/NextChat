@@ -40,6 +40,7 @@ const cn = {
         Title: "聊天主题",
         SubTitle: "更改当前聊天主题",
       },
+      LoadEarlier: (count: number) => `加载更早的 ${count} 条消息`,
     },
     Actions: {
       ChatList: "查看消息列表",
