@@ -480,9 +480,15 @@
   }
 }
 
+/* 气泡里只显示缩略图，点开看大图（原图在预览层里按比例展示） */
 .chat-message-item-image {
-  width: 100%;
+  display: block;
+  width: auto;
+  max-width: min(240px, 100%);
+  max-height: 240px;
   margin-top: 10px;
+  object-fit: cover;
+  cursor: zoom-in;
 }
 
 .chat-message-item-images {
@@ -499,6 +505,7 @@
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
+  cursor: zoom-in;
 }
 
 .chat-message-item-image,
@@ -514,10 +521,6 @@
   .chat-message-item-image-multi {
     width: $calc-image-width;
     height: $calc-image-width;
-  }
-
-  .chat-message-item-image {
-    max-width: calc(100vw / 3 * 2);
   }
 }
 
@@ -536,10 +539,33 @@
     max-width: $max-image-width;
     max-height: $max-image-width;
   }
+}
 
-  .chat-message-item-image {
-    max-width: calc(calc(1200px - var(--sidebar-width)) / 3 * 2);
-  }
+/* 点击缩略图后的全屏大图 */
+.chat-image-preview-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* 高于移动端侧边栏（1000），略低于确认弹窗（9999） */
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.8);
+  cursor: zoom-out;
+  touch-action: pinch-zoom;
+}
+
+.chat-image-preview-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+  user-select: none;
 }
 
 .chat-message-action-date {

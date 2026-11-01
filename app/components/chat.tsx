@@ -1081,6 +1081,8 @@ function _Chat() {
   const [showExport, setShowExport] = useState(false);
   // 调试用：查看某条消息的原始数据（存储原文 / 渲染输入 / JSON）
   const [debugMessage, setDebugMessage] = useState<ChatMessage | null>(null);
+  // 点开气泡里的缩略图后，全屏看大图
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [userInput, setUserInput] = useState("");
@@ -1648,24 +1650,27 @@ function _Chat() {
           event.preventDefault();
           const file = item.getAsFile();
           if (file) {
-            const images: string[] = [];
-            images.push(...attachImages);
-            images.push(
-              ...(await new Promise<string[]>((res, rej) => {
-                setUploading(true);
-                const imagesData: string[] = [];
-                uploadImageRemote(file)
-                  .then((dataUrl) => {
-                    imagesData.push(dataUrl);
-                    setUploading(false);
-                    res(imagesData);
-                  })
-                  .catch((e) => {
-                    setUploading(false);
-                    rej(e);
-                  });
-              })),
-            );
+            const images: string[] = [...attachImages];
+
+            setUploading(true);
+            try {
+              images.push(await uploadImageRemote(file));
+            } catch (e: any) {
+              console.error(
+                "[Image] 粘贴图片处理失败",
+                file.type || "(unknown type)",
+                file.size,
+                e,
+              );
+              showToast(
+                `${Locale.Chat.Actions.ImageUploadFailed}${
+                  e?.message ? `: ${e.message}` : ""
+                }`,
+              );
+            } finally {
+              setUploading(false);
+            }
+
             const imagesLength = images.length;
 
             if (imagesLength > 3) {
@@ -1679,47 +1684,66 @@ function _Chat() {
     [attachImages, chatStore],
   );
 
+  /** 选图：input 必须挂到 DOM 上，否则老版本 iOS Safari 不会触发 change */
+  function pickImages(): Promise<File[]> {
+    return new Promise((resolve) => {
+      const input = document.createElement("input");
+      input.type = "file";
+      // 老 iOS 更喜欢通配符；写死 heic/heif 有时会让选择器失效
+      input.accept = "image/*";
+      input.multiple = true;
+      input.style.display = "none";
+
+      const finish = (files: File[]) => {
+        input.remove();
+        resolve(files);
+      };
+
+      input.onchange = () => {
+        finish(Array.from(input.files ?? []));
+      };
+      // 部分浏览器支持取消事件；不支持时 Promise 会一直挂着，但没有副作用
+      (input as any).oncancel = () => finish([]);
+
+      document.body.appendChild(input);
+      input.click();
+    });
+  }
+
   async function uploadImage() {
-    const images: string[] = [];
-    images.push(...attachImages);
+    const files = await pickImages();
+    if (files.length === 0) {
+      return;
+    }
 
-    images.push(
-      ...(await new Promise<string[]>((res, rej) => {
-        const fileInput = document.createElement("input");
-        fileInput.type = "file";
-        fileInput.accept =
-          "image/png, image/jpeg, image/webp, image/heic, image/heif";
-        fileInput.multiple = true;
-        fileInput.onchange = (event: any) => {
-          setUploading(true);
-          const files = event.target.files;
-          const imagesData: string[] = [];
-          for (let i = 0; i < files.length; i++) {
-            const file = event.target.files[i];
-            uploadImageRemote(file)
-              .then((dataUrl) => {
-                imagesData.push(dataUrl);
-                if (
-                  imagesData.length === 3 ||
-                  imagesData.length === files.length
-                ) {
-                  setUploading(false);
-                  res(imagesData);
-                }
-              })
-              .catch((e) => {
-                setUploading(false);
-                rej(e);
-              });
-          }
-        };
-        fileInput.click();
-      })),
-    );
+    const images: string[] = [...attachImages];
+    const remaining = Math.max(0, 3 - images.length);
 
-    const imagesLength = images.length;
-    if (imagesLength > 3) {
-      images.splice(3, imagesLength - 3);
+    setUploading(true);
+    try {
+      for (const file of files.slice(0, remaining)) {
+        try {
+          images.push(await uploadImageRemote(file));
+        } catch (e: any) {
+          console.error(
+            "[Image] 处理失败",
+            file.type || "(unknown type)",
+            file.size,
+            e,
+          );
+          showToast(
+            `${Locale.Chat.Actions.ImageUploadFailed}${
+              e?.message ? `: ${e.message}` : ""
+            }`,
+          );
+        }
+      }
+    } finally {
+      setUploading(false);
+    }
+
+    if (images.length > 3) {
+      images.splice(3, images.length - 3);
     }
     setAttachImages(images);
   }
@@ -2125,6 +2149,9 @@ function _Chat() {
                                 className={styles["chat-message-item-image"]}
                                 src={getMessageImages(message)[0]}
                                 alt=""
+                                onClick={() =>
+                                  setPreviewImage(getMessageImages(message)[0])
+                                }
                               />
                             )}
                             {getMessageImages(message).length > 1 && (
@@ -2149,6 +2176,7 @@ function _Chat() {
                                         key={index}
                                         src={image}
                                         alt=""
+                                        onClick={() => setPreviewImage(image)}
                                       />
                                     );
                                   },
@@ -2313,6 +2341,19 @@ function _Chat() {
           message={debugMessage}
           onClose={() => setDebugMessage(null)}
         />
+      )}
+
+      {previewImage && (
+        <div
+          className={styles["chat-image-preview-mask"]}
+          onClick={() => setPreviewImage(null)}
+        >
+          <img
+            className={styles["chat-image-preview-image"]}
+            src={previewImage}
+            alt=""
+          />
+        </div>
       )}
     </>
   );

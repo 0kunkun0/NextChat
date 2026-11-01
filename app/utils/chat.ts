@@ -4,7 +4,6 @@ import {
   REQUEST_TIMEOUT_MS,
 } from "@/app/constant";
 import { MultimodalContent, RequestMessage } from "@/app/client/api";
-import { showToast } from "@/app/components/ui-lib";
 import Locale from "@/app/locales";
 import {
   EventStreamContentType,
@@ -12,63 +11,116 @@ import {
 } from "@fortaine/fetch-event-source";
 import { prettyObject } from "./format";
 import { fetch as tauriFetch } from "./stream";
+import { fitImageSize } from "./image";
 
-export function compressImage(file: Blob, maxSize: number): Promise<string> {
+function readAsDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = (readerEvent: any) => {
-      const image = new Image();
-      image.onload = () => {
-        let canvas = document.createElement("canvas");
-        let ctx = canvas.getContext("2d");
-        let width = image.width;
-        let height = image.height;
-        let quality = 0.9;
-        let dataUrl;
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("读取图片失败"));
+    reader.readAsDataURL(blob);
+  });
+}
 
-        do {
-          canvas.width = width;
-          canvas.height = height;
-          ctx?.clearRect(0, 0, canvas.width, canvas.height);
-          ctx?.drawImage(image, 0, 0, width, height);
-          dataUrl = canvas.toDataURL("image/jpeg", quality);
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("浏览器无法解码这张图片"));
+    image.src = src;
+  });
+}
 
-          if (dataUrl.length < maxSize) break;
+/** HEIC/HEIF（iPhone 默认格式）转 JPEG；转不了就返回 null */
+async function convertHeicToJpeg(file: Blob): Promise<Blob | null> {
+  try {
+    const mod: any = await import("heic2any");
+    const heic2any = mod?.default ?? mod;
+    const result = await heic2any({
+      blob: file,
+      toType: "image/jpeg",
+      quality: 0.9,
+    });
+    const blob = Array.isArray(result) ? result[0] : result;
+    return blob instanceof Blob ? blob : null;
+  } catch (e) {
+    console.warn("[Image] heic conversion failed", e);
+    return null;
+  }
+}
 
-          if (quality > 0.5) {
-            // Prioritize quality reduction
-            quality -= 0.1;
-          } else {
-            // Then reduce the size
-            width *= 0.9;
-            height *= 0.9;
-          }
-        } while (dataUrl.length > maxSize);
+function drawToJpegDataUrl(image: HTMLImageElement, maxSize: number) {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("无法创建画布");
+  }
 
-        resolve(dataUrl);
-      };
-      image.onerror = reject;
-      image.src = readerEvent.target.result;
-    };
-    reader.onerror = reject;
+  // 老设备（小内存 iPhone）把整张原图丢进 canvas 很容易被系统杀掉，
+  // 所以先按最长边缩到上限再绘制
+  let { width, height } = fitImageSize(
+    image.width || image.naturalWidth,
+    image.height || image.naturalHeight,
+  );
 
-    if (file.type.includes("heic")) {
-      try {
-        const heic2any = require("heic2any");
-        heic2any({ blob: file, toType: "image/jpeg" })
-          .then((blob: Blob) => {
-            reader.readAsDataURL(blob);
-          })
-          .catch((e: any) => {
-            reject(e);
-          });
-      } catch (e) {
-        reject(e);
-      }
+  let quality = 0.9;
+  let dataUrl = "";
+
+  for (let i = 0; i < 12; i++) {
+    canvas.width = Math.max(1, Math.round(width));
+    canvas.height = Math.max(1, Math.round(height));
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // JPEG 没有透明通道，先铺白底，避免透明 PNG 变成黑块
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    dataUrl = canvas.toDataURL("image/jpeg", quality);
+
+    // toDataURL 失败时只会返回 "data:,"，别把它当有效结果
+    if (!dataUrl || dataUrl.length < 64) {
+      throw new Error("图片压缩失败");
     }
 
-    reader.readAsDataURL(file);
-  });
+    if (dataUrl.length <= maxSize) {
+      break;
+    }
+
+    if (quality > 0.5) {
+      // Prioritize quality reduction
+      quality -= 0.1;
+    } else {
+      // Then reduce the size
+      width *= 0.85;
+      height *= 0.85;
+    }
+  }
+
+  return dataUrl;
+}
+
+/**
+ * 把图片压成 dataURL。
+ * - 先缩到 1600px 再绘制，避免老设备 canvas 内存不足；
+ * - 浏览器解不了（典型是 iPhone 的 HEIC/HEIF）时转一次 JPEG 再试。
+ */
+export function compressImage(file: Blob, maxSize: number): Promise<string> {
+  return (async () => {
+    let dataUrl = await readAsDataUrl(file);
+    let image: HTMLImageElement;
+
+    try {
+      image = await loadImage(dataUrl);
+    } catch (e) {
+      const jpeg = await convertHeicToJpeg(file);
+      if (!jpeg) {
+        throw e;
+      }
+      dataUrl = await readAsDataUrl(jpeg);
+      image = await loadImage(dataUrl);
+    }
+
+    return drawToJpegDataUrl(image, maxSize);
+  })();
 }
 
 export async function preProcessImageContentBase(
@@ -161,7 +213,9 @@ export function uploadImage(file: Blob): Promise<string> {
       if (res?.code == 0 && res?.data) {
         return res?.data;
       }
-      throw new Error(`upload Error: ${res?.error} | name=${res?.name} | stack=${res?.stack} | debug=${res?.debug}`);
+      throw new Error(
+        `upload Error: ${res?.error} | name=${res?.name} | stack=${res?.stack} | debug=${res?.debug}`,
+      );
     });
 }
 
