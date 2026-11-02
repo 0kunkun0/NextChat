@@ -7,7 +7,7 @@
  */
 
 /** 一次最多渲染多少条 */
-export const CONTEXT_PAGE_SIZE = 40;
+export const CONTEXT_PAGE_SIZE = 10;
 
 /**
  * 计算当前要渲染的消息窗口：从最后一条往前取 `count` 条。
