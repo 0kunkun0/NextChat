@@ -298,6 +298,15 @@ const en: LocaleType = {
           Endpoint: "UpStash Redis REST Url",
           UserName: "Backup Name",
           Password: "UpStash Redis REST Token",
+          Default: {
+            Title: "Fetch defaults from server",
+            SubTitle:
+              "Fill the Upstash URL / token configured in the server .env. Requires the access code and never ships to the client bundle",
+            Button: "Fetch",
+            Loading: "Fetching",
+            Success: "Server defaults applied",
+            Failed: "Failed to fetch server defaults",
+          },
         },
       },
 

@@ -52,6 +52,7 @@ import Locale, {
 import { copyToClipboard, clientUpdate, semverCompare } from "../utils";
 import Link from "next/link";
 import {
+  ACCESS_CODE_PREFIX,
   Anthropic,
   Azure,
   Baidu,
@@ -329,6 +330,54 @@ function CheckButton() {
 
 function SyncConfigModal(props: { onClose?: () => void }) {
   const syncStore = useSyncStore();
+  const accessStore = useAccessStore();
+  const [loadingDefaults, setLoadingDefaults] = useState(false);
+
+  /**
+   * 从服务端 .env 取 Upstash 默认配置。
+   * 必须带上访问密码：服务端只对通过校验的请求返回令牌，
+   * 这样 F12 / 前端 bundle 里都看不到 Upstash Token。
+   */
+  const fetchUpstashDefaults = async () => {
+    setLoadingDefaults(true);
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (accessStore.enabledAccessControl() && accessStore.accessCode) {
+        headers.Authorization = `Bearer ${ACCESS_CODE_PREFIX}${accessStore.accessCode}`;
+      }
+
+      const res = await fetch("/api/sync/upstash", { method: "POST", headers });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data?.error) {
+        console.error("[Upstash] failed to fetch defaults", res.status, data);
+        showToast(
+          data?.msg || Locale.Settings.Sync.Config.UpStash.Default.Failed,
+        );
+        return;
+      }
+
+      syncStore.update((config) => {
+        config.provider = ProviderType.UpStash;
+        config.upstash.endpoint = String(data.endpoint ?? "").replace(
+          /\/+$/,
+          "",
+        );
+        if (data.username) {
+          config.upstash.username = String(data.username);
+        }
+        config.upstash.apiKey = String(data.apiKey ?? "");
+      });
+      showToast(Locale.Settings.Sync.Config.UpStash.Default.Success);
+    } catch (e) {
+      console.error("[Upstash] failed to fetch defaults", e);
+      showToast(Locale.Settings.Sync.Config.UpStash.Default.Failed);
+    } finally {
+      setLoadingDefaults(false);
+    }
+  };
 
   return (
     <div className="modal-mask">
@@ -445,6 +494,23 @@ function SyncConfigModal(props: { onClose?: () => void }) {
 
         {syncStore.provider === ProviderType.UpStash && (
           <List>
+            <ListItem
+              title={Locale.Settings.Sync.Config.UpStash.Default.Title}
+              subTitle={Locale.Settings.Sync.Config.UpStash.Default.SubTitle}
+            >
+              <IconButton
+                icon={<DownloadIcon />}
+                text={
+                  loadingDefaults
+                    ? Locale.Settings.Sync.Config.UpStash.Default.Loading
+                    : Locale.Settings.Sync.Config.UpStash.Default.Button
+                }
+                bordered
+                disabled={loadingDefaults}
+                onClick={fetchUpstashDefaults}
+              />
+            </ListItem>
+
             <ListItem title={Locale.Settings.Sync.Config.UpStash.Endpoint}>
               <input
                 type="text"

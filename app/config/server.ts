@@ -263,6 +263,12 @@ export const getServerSideConfig = () => {
     gtmId: process.env.GTM_ID,
     gaId: process.env.GA_ID || DEFAULT_GA_ID,
 
+    // Upstash 备份的默认值：只给服务端用（前端点按钮时走 /api/sync/upstash 按需取），
+    // 不要用 NEXT_PUBLIC_ 前缀，否则会被打进前端 bundle
+    upstashUrl: process.env.UPSTASH_URL,
+    upstashToken: process.env.UPSTASH_TOKEN,
+    upstashUsername: process.env.UPSTASH_USERNAME,
+
     needCode: ACCESS_CODES.size > 0,
     code: process.env.CODE,
     codes: ACCESS_CODES,

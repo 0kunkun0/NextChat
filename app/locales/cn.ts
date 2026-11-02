@@ -295,6 +295,15 @@ const cn = {
           Endpoint: "UpStash Redis REST Url",
           UserName: "备份名称",
           Password: "UpStash Redis REST Token",
+          Default: {
+            Title: "从服务器获取默认值",
+            SubTitle:
+              "填充服务端 .env 里配置的 Upstash 地址 / 令牌。需要访问密码，且不会出现在前端代码里",
+            Button: "获取",
+            Loading: "获取中",
+            Success: "已填充服务端默认配置",
+            Failed: "获取服务端默认配置失败",
+          },
         },
       },
 
