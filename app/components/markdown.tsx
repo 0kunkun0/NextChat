@@ -313,7 +313,6 @@ export function Markdown(
       }}
       ref={mdRef}
       onContextMenu={props.onContextMenu}
-      onDoubleClickCapture={props.onDoubleClickCapture}
       dir="auto"
     >
       {props.loading ? (
