@@ -19,6 +19,11 @@ const CHUNK_BYTES = 1000 * 1000;
  * Upstash 单请求上限约 1MB，按 UTF-8 最坏 3 字节/字符算，25 万字符仍在上限内。
  */
 const PIPELINE_MAX_CHARS = 250_000;
+/**
+ * 压缩过的内容是 base64（纯 ASCII，1 字符≈1 字节），
+ * 同样的 1MB 上限可以塞更多，请求数能少 3 倍左右。
+ */
+const PIPELINE_MAX_CHARS_COMPRESSED = 800_000;
 /** 单个 pipeline 请求里最多塞多少条命令 */
 const PIPELINE_MAX_COMMANDS = 20;
 
@@ -170,7 +175,11 @@ async function decodePayload(raw: string, gz?: boolean): Promise<string> {
 }
 
 /** 按命令数 / 字符总量把待处理项分组，避免单次 pipeline 请求过大 */
-function groupBatches<T>(items: T[], sizeOf: (item: T) => number) {
+function groupBatches<T>(
+  items: T[],
+  sizeOf: (item: T) => number,
+  maxChars: number = PIPELINE_MAX_CHARS,
+) {
   const batches: T[][] = [];
   let current: T[] = [];
   let chars = 0;
@@ -179,8 +188,7 @@ function groupBatches<T>(items: T[], sizeOf: (item: T) => number) {
     const size = sizeOf(item);
     if (
       current.length > 0 &&
-      (current.length >= PIPELINE_MAX_COMMANDS ||
-        chars + size > PIPELINE_MAX_CHARS)
+      (current.length >= PIPELINE_MAX_COMMANDS || chars + size > maxChars)
     ) {
       batches.push(current);
       current = [];
@@ -192,6 +200,47 @@ function groupBatches<T>(items: T[], sizeOf: (item: T) => number) {
 
   if (current.length > 0) batches.push(current);
   return batches;
+}
+
+/** 压缩过的项按更大的字符预算分批，未压缩的按保守预算 */
+function groupBatchesByEncoding<T extends { gz?: boolean }>(
+  items: T[],
+  sizeOf: (item: T) => number,
+) {
+  return [
+    ...groupBatches(
+      items.filter((item) => item.gz),
+      sizeOf,
+      PIPELINE_MAX_CHARS_COMPRESSED,
+    ),
+    ...groupBatches(
+      items.filter((item) => !item.gz),
+      sizeOf,
+      PIPELINE_MAX_CHARS,
+    ),
+  ];
+}
+
+/**
+ * 并发跑一批任务。
+ *
+ * 每个批次都是一次完整的往返（国内到 Upstash 通常 150~300ms），
+ * 串行跑 10 个批次就是 2~3 秒；并发 4 个能把总耗时压到 wave 数。
+ */
+async function runLimited<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+) {
+  let cursor = 0;
+  const run = async () => {
+    while (cursor < items.length) {
+      const item = items[cursor++];
+      await worker(item);
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
 }
 
 /** 用户点了“取消”导致的错误（AbortController.abort） */
@@ -530,7 +579,7 @@ export function createUpstashClient(
 
       const sessionItems: RemoteItem[] = [];
       const storeItems: RemoteItem[] = [];
-      const small: Array<{ key: string; payload: string }> = [];
+      const small: Array<{ key: string; payload: string; gz: boolean }> = [];
       const big: Array<{ key: string; payload: string }> = [];
 
       const plan = async (
@@ -565,7 +614,7 @@ export function createUpstashClient(
         if (payload.length > PIPELINE_MAX_CHARS) {
           big.push({ key, payload });
         } else {
-          small.push({ key, payload });
+          small.push({ key, payload, gz });
         }
         return item;
       };
@@ -595,16 +644,17 @@ export function createUpstashClient(
 
       let done = 0;
 
-      // 1. 小项按批 pipeline 写
-      for (const batch of groupBatches(
+      // 1. 小项按批 pipeline 写（并发跑，别一棒一棒等往返）
+      const writeBatches = groupBatchesByEncoding(
         small,
         (item) => item.payload.length + item.key.length,
-      )) {
+      );
+      await runLimited(writeBatches, UPLOAD_CONCURRENCY, async (batch) => {
         throwIfAborted();
         await this.writeBatch(batch);
         done += batch.length;
         onProgress?.(done, total);
-      }
+      });
 
       // 2. 大项（会切片）仍然逐项并发写
       let cursor = 0;
@@ -690,7 +740,7 @@ export function createUpstashClient(
             }
           }
 
-          // 小项合批读，大项/分片项逐个读
+          // 小项合批读（并发跑），大项/分片项逐个读
           const smallItems = toFetch.filter(
             (item) =>
               !item.chunked &&
@@ -699,10 +749,11 @@ export function createUpstashClient(
           );
           const bigItems = toFetch.filter((item) => !smallItems.includes(item));
 
-          for (const batch of groupBatches(
+          const readBatches = groupBatchesByEncoding(
             smallItems,
             (item) => item.size ?? 0,
-          )) {
+          );
+          await runLimited(readBatches, UPLOAD_CONCURRENCY, async (batch) => {
             const values = await this.readBatch(
               batch.map((item) => ({
                 key: sessionKey(item.id),
@@ -723,7 +774,7 @@ export function createUpstashClient(
                 }
               }),
             );
-          }
+          });
 
           await Promise.all(
             bigItems.map(async (item) => {

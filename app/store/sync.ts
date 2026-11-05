@@ -27,10 +27,10 @@ const DEFAULT_SYNC_STATE = {
 
   /**
    * 是否把内容 gzip 压缩后再上传。
-   * 压缩/解压依赖浏览器原生的 CompressionStream / DecompressionStream
-   * （Chrome 80+ / Safari 16.4+），iOS 15 上没有，所以默认关闭。
+   * 原生 CompressionStream 可用时走原生（快），否则用 fflate（纯 JS，
+   * iOS 15 等老设备也能解压），所以默认开启：文本类备份通常能小 3~5 倍。
    */
-  useCompression: false,
+  useCompression: true,
 
   webdav: {
     endpoint: "",
@@ -148,7 +148,7 @@ export const useSyncStore = createPersistStore(
   }),
   {
     name: StoreKey.Sync,
-    version: 1.2,
+    version: 1.3,
 
     migrate(persistedState, version) {
       const newState = persistedState as typeof DEFAULT_SYNC_STATE;
@@ -166,38 +166,13 @@ export const useSyncStore = createPersistStore(
         }
       }
 
+      // 1.3：压缩现在有纯 JS 兜底（fflate），老设备也能解压，默认开启；
+      // 不想用的可以在同步配置里关掉
+      if (version < 1.3) {
+        newState.useCompression = true;
+      }
+
       return newState as any;
     },
   },
 );
-
-export function loadUpstashFromEnv() {
-  // 只在浏览器端执行
-  if (typeof window === "undefined") return;
-
-  const url = process.env.NEXT_PUBLIC_UPSTASH_URL;
-  const token = process.env.NEXT_PUBLIC_UPSTASH_TOKEN;
-  const username = process.env.NEXT_PUBLIC_UPSTASH_USERNAME;
-
-  if (!url || !token) return;
-
-  const current = useSyncStore.getState();
-  const existing = current.upstash;
-
-  // 如果前端已经填过，不覆盖（避免每次刷新都重置用户配置）
-  if (existing.endpoint && existing.apiKey) return;
-
-  // 清理末尾斜杠，避免你之前踩过的 `//set/` 坑
-  const cleanUrl = url.replace(/\/+$/, "");
-
-  useSyncStore.setState({
-    provider: ProviderType.UpStash,
-    upstash: {
-      endpoint: cleanUrl,
-      username: username || existing.username || STORAGE_KEY,
-      apiKey: token,
-    },
-  });
-
-  console.log("[Sync] Upstash config loaded from env vars");
-}
