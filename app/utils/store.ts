@@ -38,7 +38,11 @@ export function createPersistStore<T extends object, M>(
   const oldOonRehydrateStorage = persistOptions?.onRehydrateStorage;
   persistOptions.onRehydrateStorage = (state) => {
     oldOonRehydrateStorage?.(state);
-    return () => state.setHasHydrated(true);
+    return () => {
+      // 通知存储层这个 store 已经 hydrate 完，之后才允许写入
+      indexedDBStorage.markHydrated(persistOptions.name);
+      state.setHasHydrated(true);
+    };
   };
 
   return create(

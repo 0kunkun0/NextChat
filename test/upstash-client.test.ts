@@ -29,7 +29,10 @@ function installFakeUpstash() {
 
   (globalThis as any).fetch = async (url: string, init: any = {}) => {
     const u = new URL(String(url), "http://localhost");
-    const match = u.pathname.match(/^\/api\/upstash\/(get|set)\/(.+?)\/?$/);
+    // 直连和走代理两种 URL 都要认
+    const match =
+      u.pathname.match(/^\/api\/upstash\/(get|set)\/(.+?)\/?$/) ??
+      u.pathname.match(/^\/(get|set)\/(.+?)\/?$/);
     if (!match) throw new Error("unexpected url: " + url);
     const [, action, key] = match;
 

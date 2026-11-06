@@ -22,7 +22,12 @@ export type SyncStore = GetStoreState<typeof useSyncStore>;
 
 const DEFAULT_SYNC_STATE = {
   provider: ProviderType.WebDAV,
-  useProxy: true,
+  /**
+   * 是否经 /api/upstash 代理转发。
+   * 默认关闭 = 浏览器直连 Upstash：少一次转发，连接复用也更好；
+   * 万一 Upstash 不允许跨域，客户端会自动回退到代理（见 upstash.ts）。
+   */
+  useProxy: false,
   proxyUrl: ApiPath.Cors as string,
 
   /**
@@ -148,7 +153,7 @@ export const useSyncStore = createPersistStore(
   }),
   {
     name: StoreKey.Sync,
-    version: 1.3,
+    version: 1.4,
 
     migrate(persistedState, version) {
       const newState = persistedState as typeof DEFAULT_SYNC_STATE;
@@ -170,6 +175,11 @@ export const useSyncStore = createPersistStore(
       // 不想用的可以在同步配置里关掉
       if (version < 1.3) {
         newState.useCompression = true;
+      }
+
+      // 1.4：改为直连 Upstash（少一次转发）；直连被跨域拦住时会自动回退到代理
+      if (version < 1.4) {
+        newState.useProxy = false;
       }
 
       return newState as any;

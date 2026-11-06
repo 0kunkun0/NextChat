@@ -48,9 +48,10 @@ function installFakeUpstash(
     }
 
     const u = new URL(String(url), "http://localhost");
-    const match = u.pathname.match(
-      /^\/api\/upstash\/(get|set|pipeline)\/(.+?)\/?$/,
-    );
+    // 直连（https://xxx.upstash.io/get/key）和走代理（/api/upstash/get/key）两种都要认
+    const match =
+      u.pathname.match(/^\/api\/upstash\/(get|set|pipeline)\/(.+?)\/?$/) ??
+      u.pathname.match(/^\/(get|set|pipeline)(?:\/(.+?))?\/?$/);
     if (!match) throw new Error("unexpected url: " + url);
 
     const [, action, key] = match;

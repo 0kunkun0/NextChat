@@ -5,6 +5,19 @@ import { safeLocalStorage } from "@/app/utils";
 const localStorage = safeLocalStorage();
 
 class IndexedDBStorage implements StateStorage {
+  /**
+   * 已经完成 hydration 的 store 名字。
+   *
+   * 以前这里是 `JSON.parse(value)` 取 `_hasHydrated` —— 聊天状态几 MB，
+   * 而每次 set（流式输出时每秒几十次）都要付一次全量解析的钱。
+   * 现在由 createPersistStore 在 hydration 完成时打标记，零解析。
+   */
+  private hydrated = new Set<string>();
+
+  public markHydrated(name: string) {
+    this.hydrated.add(name);
+  }
+
   public async getItem(name: string): Promise<string | null> {
     try {
       const value = (await get(name)) || localStorage.getItem(name);
@@ -16,8 +29,8 @@ class IndexedDBStorage implements StateStorage {
 
   public async setItem(name: string, value: string): Promise<void> {
     try {
-      const _value = JSON.parse(value);
-      if (!_value?.state?._hasHydrated) {
+      if (!this.hydrated.has(name)) {
+        // hydration 还没完成就写，会把默认状态盖到已存的备份上
         console.warn("skip setItem", name);
         return;
       }

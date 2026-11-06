@@ -1940,6 +1940,8 @@ function _Chat() {
                 .map((message, i) => {
                   const isUser = message.role === "user";
                   const isContext = i < context.length;
+                  // 同一条消息里图片会用到好几次，别每次都重新遍历 content
+                  const messageImages = getMessageImages(message);
                   const showActions =
                     i > 0 &&
                     !(message.preview || message.content.length === 0) &&
@@ -2140,43 +2142,38 @@ function _Chat() {
                               parentRef={scrollRef}
                               defaultShow={i >= messages.length - 6}
                             />
-                            {getMessageImages(message).length == 1 && (
+                            {messageImages.length == 1 && (
                               <img
                                 className={styles["chat-message-item-image"]}
-                                src={getMessageImages(message)[0]}
+                                src={messageImages[0]}
                                 alt=""
                                 onClick={() =>
-                                  setPreviewImage(getMessageImages(message)[0])
+                                  setPreviewImage(messageImages[0])
                                 }
                               />
                             )}
-                            {getMessageImages(message).length > 1 && (
+                            {messageImages.length > 1 && (
                               <div
                                 className={styles["chat-message-item-images"]}
                                 style={
                                   {
-                                    "--image-count":
-                                      getMessageImages(message).length,
+                                    "--image-count": messageImages.length,
                                   } as React.CSSProperties
                                 }
                               >
-                                {getMessageImages(message).map(
-                                  (image, index) => {
-                                    return (
-                                      <img
-                                        className={
-                                          styles[
-                                            "chat-message-item-image-multi"
-                                          ]
-                                        }
-                                        key={index}
-                                        src={image}
-                                        alt=""
-                                        onClick={() => setPreviewImage(image)}
-                                      />
-                                    );
-                                  },
-                                )}
+                                {messageImages.map((image, index) => {
+                                  return (
+                                    <img
+                                      className={
+                                        styles["chat-message-item-image-multi"]
+                                      }
+                                      key={index}
+                                      src={image}
+                                      alt=""
+                                      onClick={() => setPreviewImage(image)}
+                                    />
+                                  );
+                                })}
                               </div>
                             )}
                           </div>

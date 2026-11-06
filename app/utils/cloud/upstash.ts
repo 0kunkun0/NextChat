@@ -252,6 +252,12 @@ export function isAbortError(error: any) {
   );
 }
 
+/**
+ * 直连失败过一次就记住（跨 client 实例），
+ * 避免每次点同步都先撞一次跨域再回退。
+ */
+let directUnavailable = false;
+
 export function createUpstashClient(
   store: SyncStore,
   options?: { signal?: AbortSignal },
@@ -282,10 +288,30 @@ export function createUpstashClient(
   const proxyUrl =
     store.useProxy && store.proxyUrl.length > 0 ? store.proxyUrl : undefined;
 
+  /**
+   * 直连 Upstash（不走 /api/upstash 代理）。
+   *
+   * 少一次转发之外，更重要的是连接复用：浏览器到 Upstash 是长连接池，
+   * 而经过服务端代理时每条请求都多一段服务端处理/新连接的风险。
+   * 关掉「启用代理」即可启用；万一 Upstash 不允许跨域（fetch 直接 reject），
+   * 会自动退回代理，只是第一条请求多花一点时间。
+   */
+  const preferDirect = !store.useProxy;
+  let forceProxy = false;
+
+  const isNetworkError = (e: any) =>
+    e instanceof TypeError ||
+    /Failed to fetch|NetworkError|Load failed|CORS/i.test(
+      String(e?.message ?? ""),
+    );
+
   return {
     async check() {
       try {
-        const res = await fetch(this.path(`get/${storeKey}`, proxyUrl), {
+        const res = await this.request({
+          path: `get/${storeKey}`,
+          action: "get",
+          key: storeKey,
           method: "GET",
           headers: this.headers(),
           signal,
@@ -299,7 +325,10 @@ export function createUpstashClient(
     },
 
     async redisGet(key: string) {
-      const res = await fetch(this.path(`get/${key}`, proxyUrl), {
+      const res = await this.request({
+        path: `get/${key}`,
+        action: "get",
+        key,
         method: "GET",
         headers: this.headers(),
         signal,
@@ -315,7 +344,10 @@ export function createUpstashClient(
     // 避免取消时把某个大会话写成“半新半旧”的损坏状态。
     // 取消会在下一个项目/批次开始前生效。
     async redisSet(key: string, value: string) {
-      const res = await fetch(this.path(`set/${key}`, proxyUrl), {
+      const res = await this.request({
+        path: `set/${key}`,
+        action: "set",
+        key,
         method: "POST",
         headers: this.headers(),
         body: value,
@@ -326,6 +358,44 @@ export function createUpstashClient(
         const text = await res.text();
         throw new Error(`Upstash set failed: ${res.status} ${text}`);
       }
+    },
+
+    /**
+     * 统一出口：能直连就直连，直连失败（典型是跨域被拒）就退回代理。
+     */
+    async request(options: {
+      path: string;
+      action: string;
+      key?: string;
+      method: string;
+      headers: Record<string, string>;
+      body?: BodyInit | null;
+      signal?: AbortSignal;
+    }) {
+      const { path, action, key, ...init } = options;
+
+      if (!preferDirect || forceProxy || directUnavailable) {
+        return fetch(this.path(path, proxyUrl), init as RequestInit);
+      }
+
+      try {
+        return await fetch(this.directUrl(action, key), init as RequestInit);
+      } catch (e) {
+        if (isAbortError(e) || !isNetworkError(e)) throw e;
+        console.warn("[Upstash] direct request failed, fall back to proxy", e);
+        forceProxy = true;
+        // 记住这次失败，别每次同步都再撞一次跨域
+        directUnavailable = true;
+        return fetch(this.path(path, proxyUrl), init as RequestInit);
+      }
+    },
+
+    /** Upstash 原生 REST 路径（直连用） */
+    directUrl(action: string, key?: string) {
+      const cleanEndpoint = config.endpoint.replace(/\/+$/, "");
+      return key
+        ? `${cleanEndpoint}/${action}/${key}`
+        : `${cleanEndpoint}/${action}`;
     },
 
     headers() {
@@ -367,7 +437,9 @@ export function createUpstashClient(
       commands: string[][],
       opts?: { signal?: AbortSignal },
     ): Promise<any[]> {
-      const res = await fetch(this.path("pipeline/_", proxyUrl), {
+      const res = await this.request({
+        path: "pipeline/_",
+        action: "pipeline",
         method: "POST",
         headers: {
           ...this.headers(),
@@ -548,20 +620,40 @@ export function createUpstashClient(
         StoreKey.Prompt,
       ];
 
-      // 压缩是设置项，默认关闭；而且当前浏览器得真的支持 CompressionStream
-      // （iOS 15 / Safari < 16.4 没有），否则按未压缩处理
+      // 压缩是设置项，默认开启；没有原生 CompressionStream 时 fflate 兜底
       const compress = store.useCompression === true;
 
-      // 读一次远端索引：
-      // - 云端没有索引（换了库 / 被清空）→ 全部重传；
-      // - 有的话用它里面的哈希判断哪些项没变（比本机缓存可靠，多设备也不会错）。
-      let remoteIndex: RemoteIndex | null = null;
-      try {
-        const raw = await this.redisGet(indexKey);
-        if (raw) remoteIndex = JSON.parse(raw) as RemoteIndex;
-      } catch (e) {
+      // 先把索引请求发出去，等它回来的这段时间顺手把本地序列化 + 哈希算完：
+      // 两件事本来都得做，串行做等于白等一个完整往返。
+      const indexPromise = this.redisGet(indexKey).catch((e) => {
         if (isAbortError(e)) throw e;
         console.warn("[Upstash] failed to read index, upload everything", e);
+        return null;
+      });
+
+      const hashStartedAt = Date.now();
+      const localSessions = sessions.map((session) => {
+        const json = JSON.stringify(session);
+        return { session, json, hash: hashString(json) };
+      });
+      const localStores = storeNames.map((name) => {
+        const json = JSON.stringify(state[name] ?? {});
+        return { name, json, hash: hashString(json) };
+      });
+      const hashMs = Date.now() - hashStartedAt;
+
+      // - 云端没有索引（换了库 / 被清空）→ 全部重传；
+      // - 有的话用它里面的哈希判断哪些项没变（比本机缓存可靠，多设备也不会错）。
+      const rawIndex = await indexPromise;
+      const indexMs = Date.now() - hashStartedAt - hashMs;
+
+      let remoteIndex: RemoteIndex | null = null;
+      if (rawIndex) {
+        try {
+          remoteIndex = JSON.parse(rawIndex) as RemoteIndex;
+        } catch (e) {
+          console.warn("[Upstash] failed to parse index, upload everything", e);
+        }
       }
 
       const remoteItems = new Map<string, RemoteItem>();
@@ -586,8 +678,8 @@ export function createUpstashClient(
         kind: "sessions" | "stores",
         id: string,
         json: string,
+        hash: string,
       ) => {
-        const hash = hashString(json);
         const remote = remoteItems.get(id);
 
         // 远端已经有完全一样的内容：不重传，索引里沿用远端记录的存储方式
@@ -619,17 +711,15 @@ export function createUpstashClient(
         return item;
       };
 
-      for (const session of sessions) {
+      for (const item of localSessions) {
         throwIfAborted();
         sessionItems.push(
-          await plan("sessions", session.id, JSON.stringify(session)),
+          await plan("sessions", item.session.id, item.json, item.hash),
         );
       }
-      for (const name of storeNames) {
+      for (const item of localStores) {
         throwIfAborted();
-        storeItems.push(
-          await plan("stores", name, JSON.stringify(state[name] ?? {})),
-        );
+        storeItems.push(await plan("stores", item.name, item.json, item.hash));
       }
 
       const total = small.length + big.length;
@@ -677,6 +767,7 @@ export function createUpstashClient(
       // 3. 最后写索引：读端以索引为准，索引存在即代表数据齐全。
       // 取消时不写索引 → 远端索引保持旧状态，下次上传会自己补上。
       throwIfAborted();
+      const dataMs = Date.now() - startedAt - hashMs - indexMs;
       const index: RemoteIndex = {
         v: 2,
         updatedAt: Date.now(),
@@ -685,12 +776,20 @@ export function createUpstashClient(
         stores: storeItems,
         compress,
       };
-      await this.redisSet(indexKey, JSON.stringify(index));
+      const indexBytes = JSON.stringify(index);
+      await this.redisSet(indexKey, indexBytes);
 
       console.log(
         `[Upstash] incremental upload: ${done}/${total} item(s) in ${
           Date.now() - startedAt
         }ms`,
+        {
+          indexReadMs: indexMs,
+          localHashMs: hashMs,
+          dataMs,
+          indexBytes: indexBytes.length,
+          direct: preferDirect && !forceProxy,
+        },
       );
       return {
         uploaded: done,
@@ -706,10 +805,27 @@ export function createUpstashClient(
      * - 支持 gzip 压缩过的内容。
      */
     async download(localState?: any) {
-      const indexRaw = await this.redisGet(indexKey).catch((e) => {
+      const startedAt = Date.now();
+
+      // 索引请求先发出去，等它的时候顺带把本地哈希算完
+      const indexPromise = this.redisGet(indexKey).catch((e) => {
         if (isAbortError(e)) throw e;
         return null;
       });
+
+      const hashStartedAt = Date.now();
+      // 本地会话的哈希，用来判断哪些完全没变
+      const localHashes = new Map<string, { hash: string; item: any }>();
+      for (const session of localState?.[StoreKey.Chat]?.sessions ?? []) {
+        localHashes.set(session.id, {
+          hash: hashString(JSON.stringify(session)),
+          item: session,
+        });
+      }
+      const hashMs = Date.now() - hashStartedAt;
+
+      const indexRaw = await indexPromise;
+      const indexMs = Date.now() - hashStartedAt - hashMs;
 
       if (indexRaw) {
         try {
@@ -717,21 +833,12 @@ export function createUpstashClient(
           const remoteSessions = index.sessions ?? [];
           const remoteStores = index.stores ?? [];
 
-          // 本地会话的哈希，用来判断哪些完全没变
-          const localSessions = new Map<string, { hash: string; item: any }>();
-          for (const session of localState?.[StoreKey.Chat]?.sessions ?? []) {
-            localSessions.set(session.id, {
-              hash: hashString(JSON.stringify(session)),
-              item: session,
-            });
-          }
-
           const sessionsById = new Map<string, any>();
           const toFetch: RemoteItem[] = [];
           let skipped = 0;
 
           for (const item of remoteSessions) {
-            const local = localSessions.get(item.id);
+            const local = localHashes.get(item.id);
             if (item.h && local && local.hash === item.h) {
               sessionsById.set(item.id, local.item);
               skipped += 1;
@@ -859,7 +966,15 @@ export function createUpstashClient(
           console.log(
             `[Upstash] download v2: ${sessions.length} session(s), ${
               Object.keys(stores).length
-            } store(s), skipped ${skipped} unchanged`,
+            } store(s), skipped ${skipped} unchanged in ${
+              Date.now() - startedAt
+            }ms`,
+            {
+              indexReadMs: indexMs,
+              localHashMs: hashMs,
+              dataMs: Date.now() - startedAt - indexMs - hashMs,
+              direct: preferDirect && !forceProxy,
+            },
           );
           return {
             [StoreKey.Chat]: { ...index.chat, sessions },

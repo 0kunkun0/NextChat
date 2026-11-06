@@ -274,7 +274,8 @@ const en: LocaleType = {
         },
         Proxy: {
           Title: "Enable CORS Proxy",
-          SubTitle: "Enable a proxy to avoid cross-origin restrictions",
+          SubTitle:
+            "Connects to Upstash directly by default (one less hop, usually faster); enable the proxy only if the direct request is blocked by CORS",
         },
         ProxyUrl: {
           Title: "Proxy Endpoint",

@@ -272,7 +272,8 @@ const cn = {
         },
         Proxy: {
           Title: "启用代理",
-          SubTitle: "在浏览器中同步时，必须启用代理以避免跨域限制",
+          SubTitle:
+            "默认直连 Upstash（少一次转发，通常更快）；只有直连被跨域限制挡住或需要统一出口时才开启代理",
         },
         ProxyUrl: {
           Title: "代理地址",
