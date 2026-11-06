@@ -4,6 +4,7 @@ import React, {
   RefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -81,6 +82,7 @@ import {
 } from "../utils";
 
 import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
+import { getChatScrollState } from "@/app/utils/chat-scroll";
 
 import dynamic from "next/dynamic";
 
@@ -552,7 +554,10 @@ function useScrollToBottom(
 
   // auto scroll
   useEffect(() => {
-    if (autoScroll && !detach) {
+    // 正在流式输出时只要用户没主动往上翻（autoScroll 为 true）就一直贴到底部：
+    // 重新生成 / 回复变长时底部位置一直在变，不跟随就会停在半路
+    const streaming = messages.some((m) => m.streaming);
+    if (autoScroll && (!detach || streaming)) {
       scrollDomToBottom();
     }
   });
@@ -1388,6 +1393,10 @@ function _Chat() {
    * 没有回复时回退到“删除后重新发送”。
    */
   const onRetry = (message: ChatMessage) => {
+    // 重新生成时内容会先清空再流式变长，底部位置一直在变：
+    // 先把视图拉到底部，后面由流式跟随保持住
+    scrollToBottom();
+
     const reply = findReplyMessage(message);
     if (reply) {
       chatStore
@@ -1530,21 +1539,96 @@ function _Chat() {
     return renderMessages.slice(msgRenderIndex, endRenderIndex);
   }, [msgRenderIndex, renderMessages]);
 
+  // 分页窗口变化时用来“固定”视口：记录一条消息及其位置，渲染完后把滚动条
+  // 挪回去，避免往上下补内容时整个画面跳走
+  const scrollAnchorRef = useRef<{
+    id: string;
+    offset: number;
+    mode: "top" | "bottom";
+  } | null>(null);
+
+  const captureScrollAnchor = (dom: HTMLElement, mode: "top" | "bottom") => {
+    const items = Array.from(
+      dom.querySelectorAll<HTMLElement>("[data-msg-id]"),
+    );
+    if (items.length === 0) {
+      return;
+    }
+
+    const domRect = dom.getBoundingClientRect();
+
+    if (mode === "top") {
+      // 视口里最靠上、还露在外面的那条消息
+      const first = items.find(
+        (el) => el.getBoundingClientRect().bottom > domRect.top + 1,
+      );
+      if (!first) return;
+      scrollAnchorRef.current = {
+        id: first.dataset.msgId ?? "",
+        offset: first.getBoundingClientRect().top,
+        mode,
+      };
+      return;
+    }
+
+    // 往下翻页时锚定最靠下、还露在外面的那条消息
+    const last = [...items]
+      .reverse()
+      .find((el) => el.getBoundingClientRect().top < domRect.bottom - 1);
+    if (!last) return;
+    scrollAnchorRef.current = {
+      id: last.dataset.msgId ?? "",
+      offset: last.getBoundingClientRect().bottom,
+      mode,
+    };
+  };
+
+  useLayoutEffect(() => {
+    const anchor = scrollAnchorRef.current;
+    if (!anchor) return;
+    scrollAnchorRef.current = null;
+
+    const dom = scrollRef.current;
+    if (!dom) return;
+
+    const el = Array.from(
+      dom.querySelectorAll<HTMLElement>("[data-msg-id]"),
+    ).find((node) => node.dataset.msgId === anchor.id);
+    if (!el) return;
+
+    const rect = el.getBoundingClientRect();
+    const current = anchor.mode === "top" ? rect.top : rect.bottom;
+    // 把锚定的那条消息挪回原来的位置
+    dom.scrollTop += current - anchor.offset;
+  }, [msgRenderIndex]);
+
   const onChatBodyScroll = (e: HTMLElement) => {
-    const bottomHeight = e.scrollTop + e.clientHeight;
-    const edgeThreshold = e.clientHeight;
-
-    const isTouchTopEdge = e.scrollTop <= edgeThreshold;
-    const isTouchBottomEdge = bottomHeight >= e.scrollHeight - edgeThreshold;
-    const isHitBottom =
-      bottomHeight >= e.scrollHeight - (isMobileScreen ? 4 : 10);
-
     const prevPageMsgIndex = msgRenderIndex - CHAT_PAGE_SIZE;
     const nextPageMsgIndex = msgRenderIndex + CHAT_PAGE_SIZE;
+    const canLoadPrev = prevPageMsgIndex >= 0;
+    // 窗口后面还有没渲染的消息时，当前位置只是“已加载部分的底部”，
+    // 不能算真正的底部，否则一到底就会自动滚到最后一条
+    const canLoadNext =
+      msgRenderIndex + 3 * CHAT_PAGE_SIZE < renderMessages.length;
 
-    if (isTouchTopEdge && !isTouchBottomEdge) {
+    const { isTouchTopEdge, isTouchBottomEdge, isHitBottom } =
+      getChatScrollState({
+        scrollTop: e.scrollTop,
+        clientHeight: e.clientHeight,
+        scrollHeight: e.scrollHeight,
+        isMobile: isMobileScreen,
+        hasMoreBelow: canLoadNext,
+      });
+
+    if (isTouchTopEdge && !isTouchBottomEdge && canLoadPrev) {
+      captureScrollAnchor(e, "top");
       setMsgRenderIndex(prevPageMsgIndex);
-    } else if (isTouchBottomEdge) {
+    } else if (isTouchBottomEdge && canLoadNext) {
+      if (isHitBottom) {
+        scrollDomToBottom();
+      } else {
+        captureScrollAnchor(e, "bottom");
+      }
       setMsgRenderIndex(nextPageMsgIndex);
     }
 
@@ -1930,8 +2014,10 @@ function _Chat() {
               onScroll={(e) => onChatBodyScroll(e.currentTarget)}
               onMouseDown={() => inputRef.current?.blur()}
               onTouchStart={() => {
+                // 只收起输入框；不要把 autoScroll 关掉——
+                // 点“重新生成”之类的按钮也会触发 touchstart，
+                // 一关掉就不会再跟随新的底部了（滚动方向交给 onScroll 判断）
                 inputRef.current?.blur();
-                setAutoScroll(false);
               }}
             >
               {messages
@@ -1954,6 +2040,8 @@ function _Chat() {
                   return (
                     <Fragment key={message.id}>
                       <div
+                        // 分页滚动时用它把视口钉在这条消息上
+                        data-msg-id={String(message.id ?? i)}
                         className={
                           isUser
                             ? styles["chat-message-user"]
