@@ -24,6 +24,7 @@ import { useChatStore } from "../store";
 import { IconButton } from "./button";
 
 import { useAppConfig } from "../store/config";
+import { useLowMemoryStore } from "../store/low-memory";
 import clsx from "clsx";
 
 export function Mermaid(props: { code: string }) {
@@ -234,6 +235,10 @@ function _MarkDownContent(props: { content: string }) {
     return getMarkdownInput(props.content);
   }, [props.content]);
 
+  // 低占用模式：代码高亮会给每个代码块生成大量 span，
+  // 长对话里是内存和渲染时间的大头，这里直接跳过
+  const lowMemory = useLowMemoryStore((state) => state.enabled);
+
   return (
     <ReactMarkdown
       remarkPlugins={[
@@ -242,16 +247,20 @@ function _MarkDownContent(props: { content: string }) {
         [RemarkGfm, { singleTilde: false }],
         RemarkBreaks,
       ]}
-      rehypePlugins={[
-        RehypeKatex,
-        [
-          RehypeHighlight,
-          {
-            detect: false,
-            ignoreMissing: true,
-          },
-        ],
-      ]}
+      rehypePlugins={
+        lowMemory
+          ? [RehypeKatex]
+          : [
+              RehypeKatex,
+              [
+                RehypeHighlight,
+                {
+                  detect: false,
+                  ignoreMissing: true,
+                },
+              ],
+            ]
+      }
       components={{
         pre: PreCode,
         code: CustomCode,

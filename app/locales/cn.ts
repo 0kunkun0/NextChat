@@ -228,6 +228,13 @@ const cn = {
       Failed: "更新失败",
     },
     SendKey: "发送键",
+    LowMemory: {
+      Title: "低占用模式",
+      SubTitle:
+        "更省内存：对话只渲染最近几条、关闭代码高亮、写盘合并延迟。仅本机生效，不参与云同步",
+      HeapUsage: "当前 JS 堆占用",
+      HeapUsageSubTitle: "仅 Chrome 系浏览器可读，用来观察模式效果",
+    },
     Theme: "主题",
     TightBorder: "无边框模式",
     SendPreviewBubble: {

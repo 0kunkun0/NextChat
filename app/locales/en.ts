@@ -230,6 +230,13 @@ const en: LocaleType = {
       Failed: "Update Failed.",
     },
     SendKey: "Send Key",
+    LowMemory: {
+      Title: "Low-memory mode",
+      SubTitle:
+        "Saves memory: renders only the latest messages, disables code highlighting, coalesces disk writes. Local only, never synced",
+      HeapUsage: "Current JS heap",
+      HeapUsageSubTitle: "Chrome-only API, for watching the effect",
+    },
     Theme: "Theme",
     TightBorder: "Tight Border",
     SendPreviewBubble: {

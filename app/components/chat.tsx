@@ -65,6 +65,7 @@ import {
   useChatStore,
   usePluginStore,
 } from "../store";
+import { useLowMemoryStore } from "../store/low-memory";
 
 import {
   autoGrowTextArea,
@@ -1521,19 +1522,23 @@ function _Chat() {
     userInput,
   ]);
 
+  // 低占用模式：渲染窗口更小（3 * chatPageSize 条），DOM / markdown 内存随之下降
+  const lowMemory = useLowMemoryStore((state) => state.enabled);
+  const chatPageSize = lowMemory ? 6 : CHAT_PAGE_SIZE;
+
   const [msgRenderIndex, _setMsgRenderIndex] = useState(
-    Math.max(0, renderMessages.length - CHAT_PAGE_SIZE),
+    Math.max(0, renderMessages.length - chatPageSize),
   );
 
   function setMsgRenderIndex(newIndex: number) {
-    newIndex = Math.min(renderMessages.length - CHAT_PAGE_SIZE, newIndex);
+    newIndex = Math.min(renderMessages.length - chatPageSize, newIndex);
     newIndex = Math.max(0, newIndex);
     _setMsgRenderIndex(newIndex);
   }
 
   const messages = useMemo(() => {
     const endRenderIndex = Math.min(
-      msgRenderIndex + 3 * CHAT_PAGE_SIZE,
+      msgRenderIndex + 3 * chatPageSize,
       renderMessages.length,
     );
     return renderMessages.slice(msgRenderIndex, endRenderIndex);
@@ -1603,13 +1608,13 @@ function _Chat() {
   }, [msgRenderIndex]);
 
   const onChatBodyScroll = (e: HTMLElement) => {
-    const prevPageMsgIndex = msgRenderIndex - CHAT_PAGE_SIZE;
-    const nextPageMsgIndex = msgRenderIndex + CHAT_PAGE_SIZE;
+    const prevPageMsgIndex = msgRenderIndex - chatPageSize;
+    const nextPageMsgIndex = msgRenderIndex + chatPageSize;
     const canLoadPrev = prevPageMsgIndex >= 0;
     // 窗口后面还有没渲染的消息时，当前位置只是“已加载部分的底部”，
     // 不能算真正的底部，否则一到底就会自动滚到最后一条
     const canLoadNext =
-      msgRenderIndex + 3 * CHAT_PAGE_SIZE < renderMessages.length;
+      msgRenderIndex + 3 * chatPageSize < renderMessages.length;
 
     const { isTouchTopEdge, isTouchBottomEdge, isHitBottom } =
       getChatScrollState({
@@ -1637,7 +1642,7 @@ function _Chat() {
   };
 
   function scrollToBottom() {
-    setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
+    setMsgRenderIndex(renderMessages.length - chatPageSize);
     scrollDomToBottom();
   }
 

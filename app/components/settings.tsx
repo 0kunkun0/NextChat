@@ -85,6 +85,7 @@ import { useNavigate } from "react-router-dom";
 import { Avatar, AvatarPicker } from "./emoji";
 import { getClientConfig } from "../config/client";
 import { useSyncStore } from "../store/sync";
+import { useLowMemoryStore } from "../store/low-memory";
 import { nanoid } from "nanoid";
 import { useMaskStore } from "../store/mask";
 import { ProviderType } from "../utils/cloud";
@@ -778,6 +779,21 @@ export function Settings() {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const config = useAppConfig();
   const updateConfig = config.update;
+  const lowMemoryEnabled = useLowMemoryStore((state) => state.enabled);
+  const setLowMemory = useLowMemoryStore((state) => state.setEnabled);
+
+  // 观察用的堆占用（只有 Chrome 系浏览器提供 performance.memory）
+  const [heapMb, setHeapMb] = useState<number | null>(null);
+  useEffect(() => {
+    const memory = (performance as any)?.memory;
+    if (!memory) return;
+
+    const update = () =>
+      setHeapMb(Math.round(memory.usedJSHeapSize / 1024 / 1024));
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const updateStore = useUpdateStore();
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -1775,6 +1791,27 @@ export function Settings() {
               />
             )}
           </ListItem>
+
+          <ListItem
+            title={Locale.Settings.LowMemory.Title}
+            subTitle={Locale.Settings.LowMemory.SubTitle}
+          >
+            <input
+              type="checkbox"
+              aria-label={Locale.Settings.LowMemory.Title}
+              checked={lowMemoryEnabled}
+              onChange={(e) => setLowMemory(e.currentTarget.checked)}
+            ></input>
+          </ListItem>
+
+          {heapMb !== null && (
+            <ListItem
+              title={Locale.Settings.LowMemory.HeapUsage}
+              subTitle={Locale.Settings.LowMemory.HeapUsageSubTitle}
+            >
+              <span>{heapMb} MB</span>
+            </ListItem>
+          )}
 
           <ListItem title={Locale.Settings.SendKey}>
             <Select
