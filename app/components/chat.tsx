@@ -83,7 +83,10 @@ import {
 } from "../utils";
 
 import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
-import { getChatScrollState } from "@/app/utils/chat-scroll";
+import {
+  getChatScrollState,
+  getStreamingScrollTarget,
+} from "@/app/utils/chat-scroll";
 
 import dynamic from "next/dynamic";
 
@@ -553,12 +556,55 @@ function useScrollToBottom(
     }
   }, [scrollRef]);
 
+  /**
+   * 流式输出时跟随新内容，但**最多只把“正在生成的那条消息”的顶部滚到画面顶部**。
+   *
+   * 之前是永远贴到底部：回复一长，每来一段就往下拽一次，用户根本没法往上翻着看
+   * 已经生成的内容。现在把上限钉在气泡顶部，滚到那里就停住。
+   */
+  const scrollToStreamingMessage = useCallback(() => {
+    const dom = scrollRef.current;
+    if (!dom) return;
+
+    requestAnimationFrame(() => {
+      const el = dom.querySelector<HTMLElement>('[data-streaming="1"]');
+
+      if (!el) {
+        dom.scrollTop = dom.scrollHeight - dom.clientHeight;
+        return;
+      }
+
+      const domRect = dom.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      // 消息顶部在滚动内容里的位置
+      const messageTop = elRect.top - domRect.top + dom.scrollTop;
+      const { target, atCap, bottom } = getStreamingScrollTarget({
+        clientHeight: dom.clientHeight,
+        scrollHeight: dom.scrollHeight,
+        messageTop,
+      });
+
+      // 气泡已经超过一屏、而且用户自己翻到上限上面去了，就别把他拽回来
+      if (atCap && dom.scrollTop < target - 2) {
+        return;
+      }
+      dom.scrollTop = Math.min(target, bottom);
+    });
+  }, [scrollRef]);
+
   // auto scroll
   useEffect(() => {
-    // 正在流式输出时只要用户没主动往上翻（autoScroll 为 true）就一直贴到底部：
-    // 重新生成 / 回复变长时底部位置一直在变，不跟随就会停在半路
+    // 正在流式输出时只要用户没主动往上翻（autoScroll 为 true）就跟随，
+    // 但只在气泡还没超过一屏时贴到底（见 scrollToStreamingMessage）
     const streaming = messages.some((m) => m.streaming);
-    if (autoScroll && (!detach || streaming)) {
+    if (!autoScroll) return;
+
+    if (streaming) {
+      scrollToStreamingMessage();
+      return;
+    }
+
+    if (!detach) {
       scrollDomToBottom();
     }
   });
@@ -2047,6 +2093,8 @@ function _Chat() {
                       <div
                         // 分页滚动时用它把视口钉在这条消息上
                         data-msg-id={String(message.id ?? i)}
+                        // 流式输出时用来定位“正在生成的那条消息”（滚动上限）
+                        data-streaming={message.streaming ? "1" : undefined}
                         className={
                           isUser
                             ? styles["chat-message-user"]

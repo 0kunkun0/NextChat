@@ -1,6 +1,7 @@
 import {
   CHAT_EDGE_THRESHOLD,
   getChatScrollState,
+  getStreamingScrollTarget,
 } from "../app/utils/chat-scroll";
 
 const base = { clientHeight: 800, isMobile: false, hasMoreBelow: false };
@@ -60,5 +61,60 @@ describe("getChatScrollState", () => {
     expect(getChatScrollState({ ...params, isMobile: true }).isHitBottom).toBe(
       false,
     );
+  });
+});
+
+describe("getStreamingScrollTarget", () => {
+  test("follows the bottom while the reply is shorter than one screen", () => {
+    // 内容 1000，视口 800 → 底部是 200；气泡顶部在 600（还没到顶）
+    const result = getStreamingScrollTarget({
+      clientHeight: 800,
+      scrollHeight: 1000,
+      messageTop: 600,
+    });
+
+    expect(result.target).toBe(200);
+    expect(result.atCap).toBe(false);
+  });
+
+  test("stops at the bubble top once the reply is taller than one screen", () => {
+    // 内容 3000，视口 800 → 底部 2200；气泡顶部在 900
+    const result = getStreamingScrollTarget({
+      clientHeight: 800,
+      scrollHeight: 3000,
+      messageTop: 900,
+    });
+
+    expect(result.target).toBe(900);
+    expect(result.atCap).toBe(true);
+  });
+
+  test("never scrolls past the bottom", () => {
+    const result = getStreamingScrollTarget({
+      clientHeight: 800,
+      scrollHeight: 900,
+      messageTop: 5000,
+    });
+    expect(result.target).toBe(100);
+  });
+
+  test("handles a message that starts at the very top", () => {
+    const result = getStreamingScrollTarget({
+      clientHeight: 800,
+      scrollHeight: 2000,
+      messageTop: 0,
+    });
+    expect(result.target).toBe(0);
+    expect(result.atCap).toBe(true);
+  });
+
+  test("handles content shorter than the viewport", () => {
+    const result = getStreamingScrollTarget({
+      clientHeight: 800,
+      scrollHeight: 400,
+      messageTop: 300,
+    });
+    expect(result.bottom).toBe(0);
+    expect(result.target).toBe(0);
   });
 });
