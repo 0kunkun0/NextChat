@@ -664,15 +664,21 @@ export function createUpstashClient(
         remoteItems.set(item.id, item);
       }
 
-      // 压缩开关变了：之前的存储格式不再适用，所有项都要按新格式重写
+      // 压缩开关变了、或者索引是旧版本（chunked 用字符数判断的老 bug）：
+      // 之前存的格式不再可靠，所有项都要重写一遍
       const reencodeAll =
         remoteIndex?.compress !== undefined &&
         remoteIndex.compress !== compress;
+      const needsRepair = remoteIndex != null && (remoteIndex.v ?? 0) < 3;
+      /** 允许“内容没变就跳过”的前提：远端格式是可信的 */
+      const canSkipUnchanged = !reencodeAll && !needsRepair;
 
       const sessionItems: RemoteItem[] = [];
       const storeItems: RemoteItem[] = [];
       const small: Array<{ key: string; payload: string; gz: boolean }> = [];
-      const big: Array<{ key: string; payload: string }> = [];
+      // 大项会走 writeValue，是否真的切片要以它实际写的结果为准
+      // （中文 1 字符≈3 字节，按字符数判断会得出错误的 chunked）
+      const big: Array<{ key: string; payload: string; item: RemoteItem }> = [];
 
       const plan = async (
         kind: "sessions" | "stores",
@@ -683,7 +689,7 @@ export function createUpstashClient(
         const remote = remoteItems.get(id);
 
         // 远端已经有完全一样的内容：不重传，索引里沿用远端记录的存储方式
-        if (!reencodeAll && remote?.h === hash) {
+        if (canSkipUnchanged && remote?.h === hash) {
           return {
             id,
             chunked: remote.chunked,
@@ -696,7 +702,8 @@ export function createUpstashClient(
         const { payload, gz } = await encodePayload(json, compress);
         const item: RemoteItem = {
           id,
-          chunked: payload.length > CHUNK_BYTES,
+          // 先假设不切片；走 big 的项在写完后会用 writeValue 的返回值覆盖
+          chunked: false,
           gz,
           h: hash,
           size: payload.length,
@@ -704,7 +711,7 @@ export function createUpstashClient(
 
         const key = kind === "sessions" ? sessionKey(id) : storeItemKey(id);
         if (payload.length > PIPELINE_MAX_CHARS) {
-          big.push({ key, payload });
+          big.push({ key, payload, item });
         } else {
           small.push({ key, payload, gz });
         }
@@ -751,8 +758,10 @@ export function createUpstashClient(
       const worker = async () => {
         while (cursor < big.length) {
           throwIfAborted();
-          const item = big[cursor++];
-          await this.writeValue(item.key, item.payload);
+          const entry = big[cursor++];
+          // 用实际写入结果回填 chunked：中文按字符数判断会错，
+          // 索引说“没切片”但实际写成了分片，读端就永远读不到最新内容
+          entry.item.chunked = await this.writeValue(entry.key, entry.payload);
           done += 1;
           onProgress?.(done, total);
         }
@@ -769,7 +778,8 @@ export function createUpstashClient(
       throwIfAborted();
       const dataMs = Date.now() - startedAt - hashMs - indexMs;
       const index: RemoteIndex = {
-        v: 2,
+        // 3：chunked 改为按实际写入结果记录（旧版本用字符数判断，会标错）
+        v: 3,
         updatedAt: Date.now(),
         chat: chatMeta,
         sessions: sessionItems,
@@ -869,7 +879,13 @@ export function createUpstashClient(
             );
             await Promise.all(
               batch.map(async (item) => {
-                const raw = values.get(sessionKey(item.id));
+                let raw = values.get(sessionKey(item.id));
+                if (typeof raw !== "string" && !item.chunked) {
+                  // 老版本把“按字节切片”的会话标成了不切片，这里补一次分片读取
+                  raw = (await this.readValue(sessionKey(item.id), true).catch(
+                    () => null,
+                  )) as any;
+                }
                 if (typeof raw !== "string") return;
                 try {
                   sessionsById.set(
@@ -885,13 +901,15 @@ export function createUpstashClient(
 
           await Promise.all(
             bigItems.map(async (item) => {
-              const raw = await this.readValue(
-                sessionKey(item.id),
-                item.chunked,
-              ).catch((e) => {
+              const key = sessionKey(item.id);
+              let raw = await this.readValue(key, item.chunked).catch((e) => {
                 if (isAbortError(e)) throw e;
                 return null;
               });
+              if (!raw && !item.chunked) {
+                // 同上：老索引可能把分片会话标成单 key
+                raw = await this.readValue(key, true).catch(() => null);
+              }
               if (!raw) {
                 console.warn("[Upstash] missing session in remote", item.id);
                 return;

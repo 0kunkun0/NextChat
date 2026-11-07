@@ -268,6 +268,72 @@ describe("upstash incremental upload", () => {
     }
   });
 
+  test("chunked is decided by bytes, not by character count", async () => {
+    // 中文 1 字符≈3 字节：40 万字符 ≈ 1.2MB，字符数没超 1e6 但字节数超了
+    const cjk = "中文内容".repeat(100_000);
+    const server = installFakeUpstash();
+
+    await client.upload(makeState(cjk));
+
+    const index = readIndex(server);
+    // 索引必须如实记录“已经切片”，否则读端会去读根本不存在的单 key
+    expect(index.sessions.find((s: any) => s.id === "s1").chunked).toBe(true);
+    expect(server.writes).toContain("backup-v2-s-s1-n");
+
+    const restored = await client.download();
+    expect(restored[StoreKey.Chat].sessions[0].messages[0].content).toBe(cjk);
+  });
+
+  test("deleting messages from a chunked session reaches the cloud", async () => {
+    const cjk = "中文内容".repeat(100_000);
+    const state = makeState(cjk);
+    installFakeUpstash();
+
+    await client.upload(state);
+
+    // 删掉一半内容后再上传
+    const shorter = cjk.slice(0, cjk.length / 2);
+    state[StoreKey.Chat].sessions[0].messages[0].content = shorter;
+    const stats = await client.upload(state);
+    expect(stats.uploaded).toBeGreaterThan(0);
+
+    const restored = await client.download();
+    expect(restored[StoreKey.Chat].sessions[0].messages[0].content).toBe(
+      shorter,
+    );
+  });
+
+  test("upgrades an old (v2) index by re-uploading everything once", async () => {
+    const server = installFakeUpstash();
+    await client.upload(makeState());
+
+    // 伪造旧版本写下的索引（v2 的 chunked 不可信）
+    const index = readIndex(server);
+    index.v = 2;
+    server.kv.set("backup-v2-index", JSON.stringify(index));
+
+    server.writes.length = 0;
+    const stats = await client.upload(makeState()); // 内容没变
+
+    expect(stats.uploaded).toBe(6);
+    expect(readIndex(server).v).toBe(3);
+  });
+
+  test("download recovers sessions an old index wrongly marked as not chunked", async () => {
+    const cjk = "中文内容".repeat(100_000);
+    const server = installFakeUpstash();
+    await client.upload(makeState(cjk));
+
+    // 模拟旧索引：实际是分片存的，但标成了 chunked:false
+    const index = readIndex(server);
+    index.v = 2;
+    index.sessions.find((s: any) => s.id === "s1").chunked = false;
+    server.kv.set("backup-v2-index", JSON.stringify(index));
+
+    const restored = await client.download();
+    expect(restored[StoreKey.Chat].sessions[0].messages[0].content).toBe(cjk);
+  });
+
   test("does not compress unless the setting is on", async () => {
     const repetitive = "这是一段会被 gzip 大幅压缩的重复文本。".repeat(2000);
     const server = installFakeUpstash();
