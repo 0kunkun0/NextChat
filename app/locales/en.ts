@@ -42,6 +42,11 @@ const en: LocaleType = {
         SubTitle: "Change the current topic",
       },
       LoadEarlier: (count: number) => `Load ${count} older messages`,
+      Complete: {
+        Label: "Generation complete",
+        Short: "Done",
+        Hint: "Uncheck to show Continue on the message and finish it with prefix completion",
+      },
     },
     Actions: {
       ChatList: "Go To Chat List",
@@ -65,6 +70,9 @@ const en: LocaleType = {
       VariantPrev: "Previous Reply",
       VariantNext: "Next Reply",
       Regenerate: "Regenerate",
+      ContinueGenerate: "Continue",
+      ContinueUnsupported:
+        "This model does not support continuation (only DeepSeek prefix completion)",
       Debug: "Raw Data",
     },
     Commands: {

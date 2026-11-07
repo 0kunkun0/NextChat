@@ -27,6 +27,7 @@ import MaxIcon from "../icons/max.svg";
 import MinIcon from "../icons/min.svg";
 import ResetIcon from "../icons/reload.svg";
 import ReloadIcon from "../icons/reload.svg";
+import PlayIcon from "../icons/play.svg";
 import SettingsIcon from "../icons/chat-settings.svg";
 import DeleteIcon from "../icons/clear.svg";
 import PinIcon from "../icons/pin.svg";
@@ -126,7 +127,7 @@ import { ExportMessageModal } from "./exporter";
 import { MessageDebugModal } from "./message-debug";
 import { getClientConfig } from "../config/client";
 import { useAllModels } from "../utils/hooks";
-import { ClientApi, MultimodalContent } from "../client/api";
+import { ClientApi, MultimodalContent, getClientApi } from "../client/api";
 import { createTTSPlayer } from "../utils/audio";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "../utils/ms_edge_tts";
 
@@ -652,9 +653,7 @@ export function ChatActions(props: {
   setAttachImages: (images: string[]) => void;
   setUploading: (uploading: boolean) => void;
   showPromptModal: () => void;
-  scrollToBottom: () => void;
   showPromptHints: () => void;
-  hitBottom: boolean;
   uploading: boolean;
   setShowShortcutKeyModal: React.Dispatch<React.SetStateAction<boolean>>;
   setUserInput: (input: string) => void;
@@ -762,20 +761,11 @@ export function ChatActions(props: {
             icon={<StopIcon />}
           />
         )}
-        {!props.hitBottom && (
-          <ChatAction
-            onClick={props.scrollToBottom}
-            text={Locale.Chat.InputActions.ToBottom}
-            icon={<BottomIcon />}
-          />
-        )}
-        {props.hitBottom && (
-          <ChatAction
-            onClick={props.showPromptModal}
-            text={Locale.Chat.InputActions.Settings}
-            icon={<SettingsIcon />}
-          />
-        )}
+        <ChatAction
+          onClick={props.showPromptModal}
+          text={Locale.Chat.InputActions.Settings}
+          icon={<SettingsIcon />}
+        />
 
         {showUploadImage && (
           <ChatAction
@@ -1476,6 +1466,22 @@ function _Chat() {
     onResend(message);
   };
 
+  /**
+   * 继续生成：把这条未完成的回复当作前缀，让模型接着写。
+   * 目前只有实现了前缀补全的 provider（DeepSeek beta）能用。
+   */
+  const onContinue = (message: ChatMessage) => {
+    const provider = session.mask.modelConfig.providerName;
+    if (!getClientApi(provider).llm.supportsPrefixCompletion) {
+      showToast(Locale.Chat.Actions.ContinueUnsupported);
+      return;
+    }
+
+    chatStore
+      .continueMessage(session, message.id)
+      .catch((e) => console.error("[Chat] continue failed", e));
+  };
+
   const onPinMessage = (message: ChatMessage) => {
     chatStore.updateTargetSession(session, (session) =>
       session.mask.context.push(message),
@@ -2165,6 +2171,44 @@ function _Chat() {
                                     );
                                   }}
                                 ></IconButton>
+
+                                {/* 气泡左上角：这条回复是否生成完成 */}
+                                {message.role === "assistant" && (
+                                  <label
+                                    className={
+                                      styles["chat-message-complete-toggle"]
+                                    }
+                                    title={
+                                      Locale.Chat.EditMessage.Complete.Hint
+                                    }
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      aria-label={
+                                        Locale.Chat.EditMessage.Complete.Label
+                                      }
+                                      checked={message.isComplete !== false}
+                                      onChange={(e) => {
+                                        const checked = e.currentTarget.checked;
+                                        chatStore.updateTargetSession(
+                                          session,
+                                          (session) => {
+                                            const m = session.messages.find(
+                                              (m) => m.id === message.id,
+                                            );
+                                            if (!m) return;
+                                            m.isComplete = checked;
+                                            session.messages =
+                                              session.messages.concat();
+                                          },
+                                        );
+                                      }}
+                                    />
+                                    <span>
+                                      {Locale.Chat.EditMessage.Complete.Short}
+                                    </span>
+                                  </label>
+                                )}
                               </div>
                               {isUser ? (
                                 <Avatar avatar={config.avatar} />
@@ -2208,6 +2252,19 @@ function _Chat() {
                                         icon={<ResetIcon />}
                                         onClick={() => onRetry(message)}
                                       />
+
+                                      {/* 只有“未完成”的回复才显示继续生成（前缀补全） */}
+                                      {message.role === "assistant" &&
+                                        message.isComplete === false && (
+                                          <ChatAction
+                                            text={
+                                              Locale.Chat.Actions
+                                                .ContinueGenerate
+                                            }
+                                            icon={<PlayIcon />}
+                                            onClick={() => onContinue(message)}
+                                          />
+                                        )}
 
                                       <ChatAction
                                         text={Locale.Chat.Actions.Delete}
@@ -2369,6 +2426,15 @@ function _Chat() {
                   );
                 })}
             </div>
+            {!hitBottom && (
+              <div className={styles["chat-scroll-to-bottom"]}>
+                <ChatAction
+                  onClick={scrollToBottom}
+                  text={Locale.Chat.InputActions.ToBottom}
+                  icon={<BottomIcon />}
+                />
+              </div>
+            )}
             <div className={styles["chat-input-panel"]}>
               <PromptHints
                 prompts={promptHints}
@@ -2380,8 +2446,6 @@ function _Chat() {
                 setAttachImages={setAttachImages}
                 setUploading={setUploading}
                 showPromptModal={() => setShowPromptModal(true)}
-                scrollToBottom={scrollToBottom}
-                hitBottom={hitBottom}
                 uploading={uploading}
                 showPromptHints={() => {
                   // Click again to close

@@ -41,6 +41,11 @@ const cn = {
         SubTitle: "更改当前聊天主题",
       },
       LoadEarlier: (count: number) => `加载更早的 ${count} 条消息`,
+      Complete: {
+        Label: "生成完成",
+        Short: "完成",
+        Hint: "取消勾选后，这条回复上会出现「继续生成」，用前缀补全接着写",
+      },
     },
     Actions: {
       ChatList: "查看消息列表",
@@ -64,6 +69,8 @@ const cn = {
       VariantPrev: "上一个候选回复",
       VariantNext: "下一个候选回复",
       Regenerate: "重新生成",
+      ContinueGenerate: "继续生成",
+      ContinueUnsupported: "当前模型不支持继续生成（仅 DeepSeek 支持前缀补全）",
       Debug: "原始数据",
     },
     Commands: {

@@ -27,7 +27,7 @@ import { useAppConfig } from "../store/config";
 import { AuthPage } from "./auth";
 import { getClientConfig } from "../config/client";
 import { type ClientApi, getClientApi } from "../client/api";
-import { useAccessStore } from "../store";
+import { useAccessStore, useChatStore } from "../store";
 import clsx from "clsx";
 import { initializeMcpSystem, isMcpEnabled } from "../mcp/actions";
 
@@ -230,6 +230,16 @@ export function useLoadData() {
       const models = await api.llm.models();
       config.mergeModels(models);
     })();
+
+    // 上次生成到一半就刷新了：把残留的 streaming 消息标成未完成，
+    // 这样界面上可以直接点「继续生成」补齐
+    const repair = () => useChatStore.getState().repairInterruptedMessages();
+    if (useChatStore.persist.hasHydrated()) {
+      repair();
+    } else {
+      useChatStore.persist.onFinishHydration(repair);
+    }
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 }

@@ -83,6 +83,12 @@ export type ChatMessage = RequestMessage & {
    */
   variants?: ChatMessageVariant[];
   variantIndex?: number;
+  /**
+   * 这条回复是否“生成完成”。
+   * 未设置视为完成；标成 false 时说明内容可能只有一半（比如生成中途刷新），
+   * 消息上会出现「继续生成」按钮，用前缀补全接着写。
+   */
+  isComplete?: boolean;
 };
 
 export function createMessage(override: Partial<ChatMessage>): ChatMessage {
@@ -629,6 +635,8 @@ export const useChatStore = createPersistStore(
         flush: () => void;
         onFinishMessage?: (botMessage: ChatMessage) => void;
         onError?: (error: Error, isAborted: boolean) => void;
+        /** 前缀补全：sendMessages 最后一条是 assistant 前缀 */
+        prefix?: boolean;
       }) {
         const { session, sendMessages, modelConfig, botMessage, flush } =
           options;
@@ -665,6 +673,7 @@ export const useChatStore = createPersistStore(
           const request = api.llm.chat({
             messages: sendMessages,
             config: { ...modelConfig, stream: true },
+            prefix: options.prefix,
             onUpdate(message) {
               botMessage.streaming = true;
               if (message) {
@@ -808,6 +817,91 @@ export const useChatStore = createPersistStore(
           botMessage,
           trackingId: target.id,
           flush,
+        });
+      },
+
+      /**
+       * 继续生成（前缀补全）。
+       *
+       * 把这条 assistant 消息的现有内容当作“前缀”发回给模型，让它接着往下写，
+       * 新增的部分直接追加到原消息后面。适合生成到一半被刷新/中断的情况。
+       * 只有标记为「未完成」（isComplete === false）的消息才能用。
+       */
+      async continueMessage(targetSession: ChatSession, messageId: string) {
+        const session = targetSession;
+        const messageIndex = session.messages.findIndex(
+          (m) => m.id === messageId,
+        );
+        if (messageIndex < 0) return;
+
+        const target = session.messages[messageIndex];
+        if (target.role !== "assistant" || target.streaming) return;
+        if (target.isComplete !== false) return;
+
+        const modelConfig = session.mask.modelConfig;
+        const api = getClientApi(modelConfig.providerName);
+        if (!api.llm.supportsPrefixCompletion) {
+          console.warn(
+            "[Chat] provider does not support prefix completion",
+            modelConfig.providerName,
+          );
+          return;
+        }
+
+        // 已经写出来的内容就是前缀，必须原样（不做任何过滤）送回去
+        const prefix = getMessageTextContent(target);
+        const sendMessages = await get().getMessagesWithMemory(
+          messageIndex + 1,
+        );
+        if (sendMessages.length === 0) return;
+
+        // 最后一条必须是这条 assistant 前缀
+        const last = sendMessages[sendMessages.length - 1] as ChatMessage;
+        last.role = "assistant";
+        last.content = prefix;
+
+        // botMessage 只装“续写出来的部分”
+        const botMessage = createMessage({
+          role: "assistant",
+          streaming: true,
+          model: modelConfig.model,
+        });
+
+        const flush = () => {
+          get().updateTargetSession(session, (session) => {
+            const message = session.messages.find((m) => m.id === target.id);
+            if (!message) return;
+
+            message.content = prefix + botMessage.content;
+            message.streaming = botMessage.streaming;
+            message.model = botMessage.model;
+            message.isError = botMessage.isError;
+
+            session.messages = session.messages.concat();
+          });
+        };
+
+        // 先把状态切到“生成中”，界面上按钮立刻变成停止
+        target.streaming = true;
+        flush();
+
+        get().chatWithApi({
+          session,
+          sendMessages,
+          modelConfig,
+          botMessage,
+          trackingId: target.id,
+          prefix: true,
+          flush,
+          // 续写成功就标记为已完成；用户仍可在编辑里重新取消勾选
+          onFinishMessage: () => {
+            get().updateTargetSession(session, (session) => {
+              const message = session.messages.find((m) => m.id === target.id);
+              if (!message) return;
+              message.isComplete = true;
+              session.messages = session.messages.concat();
+            });
+          },
         });
       },
 
@@ -1113,6 +1207,31 @@ export const useChatStore = createPersistStore(
         if (index < 0) return;
         updater(sessions[index]);
         set(() => ({ sessions }));
+      },
+
+      /**
+       * 上次生成到一半就刷新 / 关掉页面，消息会停在 streaming 状态。
+       * 启动时把这些消息标成「未完成」，消息上就会出现「继续生成」按钮，
+       * 用前缀补全把剩下的一半补上。
+       */
+      repairInterruptedMessages() {
+        const sessions = get().sessions;
+        let changed = false;
+
+        for (const session of sessions) {
+          for (const message of session.messages) {
+            if (message.streaming) {
+              message.streaming = false;
+              message.isComplete = false;
+              changed = true;
+            }
+          }
+        }
+
+        if (changed) {
+          console.log("[Chat] marked interrupted messages as incomplete");
+          set(() => ({ sessions: sessions.concat() }));
+        }
       },
       async clearAllData() {
         await indexedDBStorage.clear();

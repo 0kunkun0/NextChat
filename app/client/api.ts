@@ -83,6 +83,11 @@ export interface ChatOptions {
   onController?: (controller: AbortController) => void;
   onBeforeTool?: (tool: ChatMessageTool) => void;
   onAfterTool?: (tool: ChatMessageTool) => void;
+  /**
+   * 前缀补全：messages 的最后一条是 assistant，内容是已有的前缀，
+   * 模型只续写后面的部分（目前 DeepSeek 的 beta 接口支持）。
+   */
+  prefix?: boolean;
 }
 
 export interface LLMUsage {
@@ -110,6 +115,8 @@ export abstract class LLMApi {
   abstract speech(options: SpeechOptions): Promise<ArrayBuffer>;
   abstract usage(): Promise<LLMUsage>;
   abstract models(): Promise<LLMModel[]>;
+  /** 这个 provider 是否支持前缀补全（继续生成） */
+  supportsPrefixCompletion?: boolean;
 }
 
 type ProviderName = "openai" | "azure" | "claude" | "palm";

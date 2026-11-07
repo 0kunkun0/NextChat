@@ -268,60 +268,82 @@ const ContextPromptItem = memo(function ContextPromptItem(props: {
   const [focusingInput, setFocusingInput] = useState(false);
 
   return (
-    <div className={chatStyle["context-prompt-row"]}>
-      {!focusingInput && (
-        <>
-          {props.draggable && (
-            <div className={chatStyle["context-drag"]}>
-              <DragIcon />
-            </div>
-          )}
-          <Select
-            value={props.prompt.role}
-            className={chatStyle["context-role"]}
+    <>
+      <div className={chatStyle["context-prompt-row"]}>
+        {!focusingInput && (
+          <>
+            {props.draggable && (
+              <div className={chatStyle["context-drag"]}>
+                <DragIcon />
+              </div>
+            )}
+            <Select
+              value={props.prompt.role}
+              className={chatStyle["context-role"]}
+              onChange={(e) =>
+                props.onUpdate(props.index, {
+                  ...props.prompt,
+                  role: e.target.value as any,
+                })
+              }
+            >
+              {ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </Select>
+          </>
+        )}
+        <Input
+          value={getMessageTextContent(props.prompt)}
+          type="text"
+          className={chatStyle["context-content"]}
+          rows={focusingInput ? 5 : 1}
+          onFocus={() => setFocusingInput(true)}
+          onBlur={() => {
+            setFocusingInput(false);
+            // If the selection is not removed when the user loses focus, some
+            // extensions like "Translate" will always display a floating bar
+            window?.getSelection()?.removeAllRanges();
+          }}
+          onInput={(e) =>
+            props.onUpdate(props.index, {
+              ...props.prompt,
+              content: e.currentTarget.value as any,
+            })
+          }
+        />
+        {!focusingInput && (
+          <IconButton
+            icon={<DeleteIcon />}
+            className={chatStyle["context-delete-button"]}
+            onClick={() => props.onRemove(props.index)}
+            bordered
+          />
+        )}
+      </div>
+
+      {/* 只有 assistant 回复需要“是否生成完成”这个标记；取消勾选后消息上会出现「继续生成」 */}
+      {!focusingInput && props.prompt.role === "assistant" && (
+        <label
+          className={chatStyle["context-complete-toggle"]}
+          title={Locale.Chat.EditMessage.Complete.Hint}
+        >
+          <input
+            type="checkbox"
+            checked={props.prompt.isComplete !== false}
             onChange={(e) =>
               props.onUpdate(props.index, {
                 ...props.prompt,
-                role: e.target.value as any,
+                isComplete: e.currentTarget.checked,
               })
             }
-          >
-            {ROLES.map((r) => (
-              <option key={r} value={r}>
-                {r}
-              </option>
-            ))}
-          </Select>
-        </>
+          />
+          {Locale.Chat.EditMessage.Complete.Label}
+        </label>
       )}
-      <Input
-        value={getMessageTextContent(props.prompt)}
-        type="text"
-        className={chatStyle["context-content"]}
-        rows={focusingInput ? 5 : 1}
-        onFocus={() => setFocusingInput(true)}
-        onBlur={() => {
-          setFocusingInput(false);
-          // If the selection is not removed when the user loses focus, some
-          // extensions like "Translate" will always display a floating bar
-          window?.getSelection()?.removeAllRanges();
-        }}
-        onInput={(e) =>
-          props.onUpdate(props.index, {
-            ...props.prompt,
-            content: e.currentTarget.value as any,
-          })
-        }
-      />
-      {!focusingInput && (
-        <IconButton
-          icon={<DeleteIcon />}
-          className={chatStyle["context-delete-button"]}
-          onClick={() => props.onRemove(props.index)}
-          bordered
-        />
-      )}
-    </div>
+    </>
   );
 });
 

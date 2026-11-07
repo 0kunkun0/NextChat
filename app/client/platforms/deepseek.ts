@@ -29,6 +29,9 @@ import { fetch } from "@/app/utils/stream";
 export class DeepSeekApi implements LLMApi {
   private disableListModels = true;
 
+  /** 支持前缀补全（继续生成）：beta 接口 + 最后一条 assistant 带 prefix */
+  public supportsPrefixCompletion = true;
+
   path(path: string): string {
     const accessStore = useAccessStore.getState();
 
@@ -65,10 +68,19 @@ export class DeepSeekApi implements LLMApi {
   }
 
   async chat(options: ChatOptions) {
+    // 前缀补全：最后一条 assistant 是“已经写了一半”的内容，模型接着往下写
+    const isPrefix = !!options.prefix;
+
     const messages: ChatOptions["messages"] = [];
-    for (const v of options.messages) {
+    const lastMessageIndex = options.messages.length - 1;
+    for (let i = 0; i < options.messages.length; i++) {
+      const v = options.messages[i];
+      const isPrefixMessage = isPrefix && i === lastMessageIndex;
       if (v.role === "assistant") {
-        const content = getMessageTextContentWithoutThinking(v);
+        // 前缀内容是用户已经看到的那半截，必须原样送回去，不能过滤思考行
+        const content = isPrefixMessage
+          ? getMessageTextContent(v)
+          : getMessageTextContentWithoutThinking(v);
         messages.push({ role: v.role, content });
       } else {
         const content = await preProcessImageContent(v.content);
@@ -93,6 +105,11 @@ export class DeepSeekApi implements LLMApi {
         filteredMessages.push(msg);
       }
       // If hasFoundFirstUser is false and it is not a system message, it will be skipped.
+    }
+
+    // 前缀补全：最后一条 assistant 打上 prefix 标记，模型只续写后面的部分
+    if (isPrefix && filteredMessages.length > 0) {
+      (filteredMessages[filteredMessages.length - 1] as any).prefix = true;
     }
 
     const modelConfig = {
@@ -123,7 +140,10 @@ export class DeepSeekApi implements LLMApi {
     options.onController?.(controller);
 
     try {
-      const chatPath = this.path(DeepSeek.ChatPath);
+      // 前缀补全是 beta 功能，要走 https://api.deepseek.com/beta/chat/completions
+      const chatPath = this.path(
+        isPrefix ? `beta/${DeepSeek.ChatPath}` : DeepSeek.ChatPath,
+      );
       const chatPayload = {
         method: "POST",
         body: JSON.stringify(requestPayload),
