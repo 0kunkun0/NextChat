@@ -546,10 +546,19 @@ function useScrollToBottom(
 ) {
   // for auto-scroll
   const [autoScroll, setAutoScroll] = useState(true);
+
+  /**
+   * 本次流式输出是否已经“停在气泡顶部”。
+   * 一旦钉住就不再自动滚动，直到用户主动要求回到底部（点按钮 / 发新消息 /
+   * 重新生成）——否则生成结束那一刻会突然跳到底部，把正在看的位置弄丢。
+   */
+  const pinnedRef = useRef(false);
+
   const scrollDomToBottom = useCallback(() => {
     const dom = scrollRef.current;
     if (dom) {
       requestAnimationFrame(() => {
+        pinnedRef.current = false;
         setAutoScroll(true);
         dom.scrollTo(0, dom.scrollHeight);
       });
@@ -559,14 +568,16 @@ function useScrollToBottom(
   /**
    * 流式输出时跟随新内容，但**最多只把“正在生成的那条消息”的顶部滚到画面顶部**。
    *
-   * 之前是永远贴到底部：回复一长，每来一段就往下拽一次，用户根本没法往上翻着看
-   * 已经生成的内容。现在把上限钉在气泡顶部，滚到那里就停住。
+   * 超过一屏之后就停住（pinnedRef），既不会被新内容一直往下带，
+   * 生成结束也不会突然跳到底部。
    */
   const scrollToStreamingMessage = useCallback(() => {
     const dom = scrollRef.current;
     if (!dom) return;
 
     requestAnimationFrame(() => {
+      if (pinnedRef.current) return;
+
       const el = dom.querySelector<HTMLElement>('[data-streaming="1"]');
 
       if (!el) {
@@ -578,17 +589,26 @@ function useScrollToBottom(
       const elRect = el.getBoundingClientRect();
       // 消息顶部在滚动内容里的位置
       const messageTop = elRect.top - domRect.top + dom.scrollTop;
-      const { target, atCap, bottom } = getStreamingScrollTarget({
+      const { target, atCap } = getStreamingScrollTarget({
         clientHeight: dom.clientHeight,
         scrollHeight: dom.scrollHeight,
         messageTop,
       });
 
-      // 气泡已经超过一屏、而且用户自己翻到上限上面去了，就别把他拽回来
-      if (atCap && dom.scrollTop < target - 2) {
+      if (atCap) {
+        // 气泡已经超过一屏：最多滚到“顶部贴住画面顶部”，然后停住。
+        // 只往下滚（target 比当前更靠下才动），不会把用户往回拽
+        if (target > dom.scrollTop + 1) {
+          dom.scrollTop = target;
+        }
+        pinnedRef.current = true;
         return;
       }
-      dom.scrollTop = Math.min(target, bottom);
+
+      // 还没到一屏：正常跟着底部走
+      if (target > dom.scrollTop + 1) {
+        dom.scrollTop = target;
+      }
     });
   }, [scrollRef]);
 
@@ -604,7 +624,8 @@ function useScrollToBottom(
       return;
     }
 
-    if (!detach) {
+    // 停在气泡顶部的情况：生成结束后保持原位置，不要跳到底部
+    if (!detach && !pinnedRef.current) {
       scrollDomToBottom();
     }
   });
