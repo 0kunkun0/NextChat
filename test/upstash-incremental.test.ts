@@ -2,6 +2,7 @@ import { TextDecoder, TextEncoder } from "util";
 import { CompressionStream, DecompressionStream } from "stream/web";
 import { StoreKey } from "../app/constant";
 import { createUpstashClient } from "../app/utils/cloud/upstash";
+import { hashString } from "../app/utils/format";
 
 // jsdom 没有这些 Web API，分片 / 压缩逻辑依赖它们
 if (typeof globalThis.TextEncoder === "undefined") {
@@ -403,5 +404,272 @@ describe("upstash incremental upload", () => {
     expect(
       server.writes.filter((k) => k.startsWith("backup-v2-s-")).length,
     ).toBe(30);
+  });
+});
+
+describe("multi-device delete propagation", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  test("deleting messages on one device shows up on another", async () => {
+    installFakeUpstash();
+    const deviceA = createUpstashClient(makeSyncStore());
+    const deviceB = createUpstashClient(makeSyncStore());
+
+    // A 上传原版，B 下载得到原版
+    await deviceA.upload(makeState("hello", "world"));
+    const bState = await deviceB.download(undefined);
+    expect(bState[StoreKey.Chat].sessions[0].messages).toHaveLength(1);
+
+    // A 删掉第一条会话里的消息再上传
+    const editedState = makeState("hello", "world");
+    editedState[StoreKey.Chat].sessions[0].messages = [];
+    const stats = await deviceA.upload(editedState);
+    expect(stats.uploaded).toBeGreaterThan(0);
+
+    // B 再下载：应该看到删除后的内容
+    const bState2 = await deviceB.download(bState);
+    expect(bState2[StoreKey.Chat].sessions[0].messages).toHaveLength(0);
+  });
+
+  test("truncating a session to fewer messages propagates", async () => {
+    installFakeUpstash();
+    const deviceA = createUpstashClient(makeSyncStore());
+    const deviceB = createUpstashClient(makeSyncStore());
+
+    const original = makeState();
+    original[StoreKey.Chat].sessions[0].messages = [
+      { id: "m1", role: "user", content: "one", date: "2026/1/1 00:00:00" },
+      {
+        id: "m2",
+        role: "assistant",
+        content: "two",
+        date: "2026/1/1 00:00:01",
+      },
+      { id: "m3", role: "user", content: "three", date: "2026/1/1 00:00:02" },
+    ];
+    await deviceA.upload(original);
+    const bState = await deviceB.download(undefined);
+
+    const truncated = makeState();
+    truncated[StoreKey.Chat].sessions[0].messages = original[
+      StoreKey.Chat
+    ].sessions[0].messages.slice(0, 1);
+    await deviceA.upload(truncated);
+
+    const bState2 = await deviceB.download(bState);
+    expect(bState2[StoreKey.Chat].sessions[0].messages).toHaveLength(1);
+    expect(bState2[StoreKey.Chat].sessions[0].messages[0].content).toBe("one");
+  });
+});
+
+describe("multi-device delete propagation (compressed / chunked)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  function makeCompressedClient() {
+    return createUpstashClient({
+      provider: "upstash",
+      useProxy: false,
+      proxyUrl: "",
+      useCompression: true,
+      upstash: {
+        endpoint: "https://example.upstash.io",
+        username: "backup",
+        apiKey: "token",
+      },
+    } as any);
+  }
+
+  test("compressied sessions also propagate deletions", async () => {
+    installFakeUpstash();
+    const a = makeCompressedClient();
+    const b = makeCompressedClient();
+
+    const big = "重复的中文内容。".repeat(20000); // 压缩率很高
+    const original = makeState(big, "world");
+    await a.upload(original);
+    const bState = await b.download(undefined);
+    expect(bState[StoreKey.Chat].sessions[0].messages[0].content).toBe(big);
+
+    const truncated = makeState("只剩下一条", "world");
+    await a.upload(truncated);
+
+    const bState2 = await b.download(bState);
+    expect(bState2[StoreKey.Chat].sessions[0].messages[0].content).toBe(
+      "只剩下一条",
+    );
+  });
+
+  test("chunked session truncated below the chunk size propagates", async () => {
+    installFakeUpstash();
+    const a = createUpstashClient(makeSyncStore());
+    const b = createUpstashClient(makeSyncStore());
+
+    // 不可压缩、超过 1MB → 走分片
+    let seed = 42;
+    const randomChar = () => {
+      seed = (1103515245 * seed + 12345) % 2147483648;
+      return "abcdefghijklmnopqrstuvwxyz"[seed % 26];
+    };
+    const huge = Array.from({ length: 1_300_000 }, randomChar).join("");
+
+    await a.upload(makeState(huge, "world"));
+    const bState = await b.download(undefined);
+    expect(bState[StoreKey.Chat].sessions[0].messages[0].content).toBe(huge);
+
+    // 删到只剩一点 → 不再分片
+    await a.upload(makeState("short now", "world"));
+
+    const bState2 = await b.download(bState);
+    expect(bState2[StoreKey.Chat].sessions[0].messages[0].content).toBe(
+      "short now",
+    );
+  });
+});
+
+describe("multi-device delete propagation (chunked -> chunked)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  function randomText(length: number) {
+    let seed = 987654321;
+    let out = "";
+    for (let i = 0; i < length; i++) {
+      seed = (1103515245 * seed + 12345) % 2147483648;
+      out += "abcdefghijklmnopqrstuvwxyz0123456789"[seed % 36];
+    }
+    return out;
+  }
+
+  test("a 3MB chunked session truncated to 1.5MB is visible on the other device", async () => {
+    installFakeUpstash();
+    const a = createUpstashClient(makeSyncStore());
+    const b = createUpstashClient(makeSyncStore());
+
+    const huge = randomText(3_000_000);
+    const smaller = huge.slice(0, 1_500_000);
+
+    await a.upload(makeState(huge, "world"));
+    const bState = await b.download(undefined);
+    expect(bState[StoreKey.Chat].sessions[0].messages[0].content).toBe(huge);
+
+    await a.upload(makeState(smaller, "world"));
+
+    const bState2 = await b.download(bState);
+    expect(bState2[StoreKey.Chat].sessions[0].messages[0].content).toBe(
+      smaller,
+    );
+  });
+
+  test("uploading the same deleted state twice is idempotent", async () => {
+    installFakeUpstash();
+    const a = createUpstashClient(makeSyncStore());
+    const b = createUpstashClient(makeSyncStore());
+
+    await a.upload(makeState("one\ntwo\nthree", "world"));
+    const bState = await b.download(undefined);
+
+    const deleted = makeState("one", "world");
+    await a.upload(deleted);
+    const again = await a.upload(deleted);
+    expect(again.total).toBe(0);
+
+    const bState2 = await b.download(bState);
+    expect(bState2[StoreKey.Chat].sessions[0].messages[0].content).toBe("one");
+  });
+});
+
+describe("stale device must not clobber remote edits", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  /** 模拟“这台设备上次上传的是某个版本”（每台设备有自己的本地缓存） */
+  function seedLastUpload(s1Hash: string) {
+    window.localStorage.setItem(
+      "upstash-last-upload-backup",
+      JSON.stringify({ hashes: { s1: s1Hash } }),
+    );
+  }
+
+  test("uploading an old copy does not undo another device's deletion", async () => {
+    installFakeUpstash();
+    const deviceA = createUpstashClient(makeSyncStore());
+
+    const original = makeState("one\ntwo", "world");
+    const originalHash = hashString(
+      JSON.stringify(original[StoreKey.Chat].sessions[0]),
+    );
+
+    await deviceA.upload(original);
+
+    // 另一台设备删掉一半内容后上传
+    await deviceA.upload(makeState("one", "world"));
+
+    // 这台设备（旧副本）上次上传的还是原始版本
+    seedLastUpload(originalHash);
+
+    // 旧副本再上传：必须识别为冲突，不能把云端改回旧的
+    const deviceB = createUpstashClient(makeSyncStore());
+    const bStats = await deviceB.upload(original);
+    expect(bStats.conflicts).toBe(1);
+    expect(bStats.uploaded).toBe(0);
+
+    // 云端仍然是删除后的版本
+    const fromCloud = await deviceB.download(undefined);
+    expect(fromCloud[StoreKey.Chat].sessions[0].messages[0].content).toBe(
+      "one",
+    );
+  });
+
+  test("a device that is not behind can still upload its own edit", async () => {
+    installFakeUpstash();
+    const deviceA = createUpstashClient(makeSyncStore());
+
+    const original = makeState("one\ntwo", "world");
+    const originalHash = hashString(
+      JSON.stringify(original[StoreKey.Chat].sessions[0]),
+    );
+
+    await deviceA.upload(original);
+    seedLastUpload(originalHash);
+
+    const stats = await deviceA.upload(makeState("one\ntwo\nthree", "world"));
+    expect(stats.conflicts).toBe(0);
+    expect(stats.uploaded).toBe(1);
+  });
+});
+describe("download updates the known-remote baseline", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  test("editing after a download is not a false conflict", async () => {
+    installFakeUpstash();
+    const deviceA = createUpstashClient(makeSyncStore());
+    const deviceB = createUpstashClient(makeSyncStore());
+
+    // A 上传原版；B 下载到原版（B 的“已知云端版本”随之更新）
+    await deviceA.upload(makeState("one\ntwo", "world"));
+    await deviceB.download(undefined);
+
+    // A 又改了一次（云端版本变了）
+    await deviceA.upload(makeState("one\ntwo\nthree", "world"));
+
+    // B 先下载到最新，再在本地改动后上传 —— 正常流程，不能报冲突
+    await deviceB.download(makeState("one\ntwo", "world"));
+    const stats = await deviceB.upload(makeState("edited on B", "world"));
+
+    expect(stats.conflicts).toBe(0);
+    expect(stats.uploaded).toBe(1);
+
+    const fromCloud = await deviceA.download(undefined);
+    expect(fromCloud[StoreKey.Chat].sessions[0].messages[0].content).toBe(
+      "edited on B",
+    );
   });
 });

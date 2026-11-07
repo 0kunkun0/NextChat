@@ -672,7 +672,12 @@ function SyncItems() {
                         setUploadProgress({ done, total }),
                       );
                       syncStore.markUploadTime();
-                      if (stats.total === 0) {
+                      if (stats.conflicts > 0) {
+                        // 云端有别的设备的改动，这次没有覆盖它，提示先下载
+                        showToast(
+                          Locale.Settings.Sync.UploadConflicts(stats.conflicts),
+                        );
+                      } else if (stats.total === 0) {
                         showToast(Locale.Settings.Sync.NothingChanged);
                       } else if (stats.skipped > 0) {
                         showToast(

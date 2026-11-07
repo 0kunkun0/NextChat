@@ -256,6 +256,8 @@ const cn = {
       UploadSuccess: "上传成功",
       UploadSuccessSkipped: (skipped: number) =>
         `上传成功（跳过 ${skipped} 个未修改项）`,
+      UploadConflicts: (count: number) =>
+        `${count} 个会话在云端有其它设备的更新，已保留云端版本；请先点「下载」再修改`,
       NothingChanged: "没有需要上传的改动",
       UploadFailed: "上传失败",
       Downloading: "下载中",
