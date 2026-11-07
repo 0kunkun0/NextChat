@@ -61,38 +61,6 @@ type RemoteIndex = {
 };
 
 /* ------------------------------------------------------------------ */
-/* 上次上传的内容哈希（只用于冲突检测，不参与跳过判断）                     */
-/* ------------------------------------------------------------------ */
-
-const LAST_UPLOAD_PREFIX = "upstash-last-upload-";
-
-type LastUploadCache = { hashes: Record<string, string> };
-
-function readLastUpload(storeKey: string): LastUploadCache {
-  try {
-    if (typeof window === "undefined") return { hashes: {} };
-    const raw = window.localStorage.getItem(LAST_UPLOAD_PREFIX + storeKey);
-    if (!raw) return { hashes: {} };
-    const parsed = JSON.parse(raw) as Partial<LastUploadCache>;
-    return { hashes: parsed.hashes ?? {} };
-  } catch (e) {
-    return { hashes: {} };
-  }
-}
-
-function writeLastUpload(storeKey: string, cache: LastUploadCache) {
-  try {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(
-      LAST_UPLOAD_PREFIX + storeKey,
-      JSON.stringify(cache),
-    );
-  } catch (e) {
-    console.warn("[Upstash] failed to write last-upload cache", e);
-  }
-}
-
-/* ------------------------------------------------------------------ */
 /* 压缩：gzip + base64                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -640,13 +608,7 @@ export function createUpstashClient(
     async upload(
       state: any,
       onProgress?: (done: number, total: number) => void,
-    ): Promise<{
-      uploaded: number;
-      skipped: number;
-      total: number;
-      /** 云端被别的设备改过、这次没有覆盖的会话数 */
-      conflicts: number;
-    }> {
+    ): Promise<{ uploaded: number; skipped: number; total: number }> {
       const startedAt = Date.now();
       const chat = state[StoreKey.Chat] ?? {};
       const sessions: any[] = Array.isArray(chat.sessions) ? chat.sessions : [];
@@ -712,13 +674,6 @@ export function createUpstashClient(
       const small: Array<{ key: string; payload: string; gz: boolean }> = [];
       const big: Array<{ key: string; payload: string }> = [];
 
-      // 上次上传成功时，每条会话/配置在云端的哈希。
-      // 只用来判断“云端这一条是不是在我们上次上传之后被别的设备改过”，
-      // 避免拿着旧副本上传时把别的设备的修改覆盖掉。
-      const lastUpload = readLastUpload(storeKey);
-      const nextHashes: Record<string, string> = {};
-      const conflicts: string[] = [];
-
       const plan = async (
         kind: "sessions" | "stores",
         id: string,
@@ -726,34 +681,14 @@ export function createUpstashClient(
         hash: string,
       ) => {
         const remote = remoteItems.get(id);
-        const lastHash = lastUpload.hashes[id];
 
         // 远端已经有完全一样的内容：不重传，索引里沿用远端记录的存储方式
         if (!reencodeAll && remote?.h === hash) {
-          nextHashes[id] = hash;
           return {
             id,
             chunked: remote.chunked,
             gz: remote.gz,
             h: hash,
-            size: remote.size ?? json.length,
-          } as RemoteItem;
-        }
-
-        // 云端这条在我们上次上传之后变过（别的设备改的），本地这条也变了：
-        // 直接覆盖会把对方删掉的消息又传回去，所以保留云端版本、不覆盖。
-        if (!reencodeAll && remote?.h && lastHash && remote.h !== lastHash) {
-          conflicts.push(id);
-          nextHashes[id] = remote.h;
-          console.warn(
-            "[Upstash] session changed on another device, keep remote version",
-            id,
-          );
-          return {
-            id,
-            chunked: remote.chunked,
-            gz: remote.gz,
-            h: remote.h,
             size: remote.size ?? json.length,
           } as RemoteItem;
         }
@@ -766,7 +701,6 @@ export function createUpstashClient(
           h: hash,
           size: payload.length,
         };
-        nextHashes[id] = hash;
 
         const key = kind === "sessions" ? sessionKey(id) : storeItemKey(id);
         if (payload.length > PIPELINE_MAX_CHARS) {
@@ -795,13 +729,7 @@ export function createUpstashClient(
         hashString(JSON.stringify(remoteIndex?.chat ?? null)) !== chatHash;
       if (total === 0 && !chatChanged) {
         console.log("[Upstash] nothing changed, skip upload");
-        writeLastUpload(storeKey, { hashes: nextHashes });
-        return {
-          uploaded: 0,
-          skipped: considered,
-          total: 0,
-          conflicts: conflicts.length,
-        };
+        return { uploaded: 0, skipped: considered, total: 0 };
       }
 
       let done = 0;
@@ -863,14 +791,10 @@ export function createUpstashClient(
           direct: preferDirect && !forceProxy,
         },
       );
-      // 记录本次上传后云端的哈希，供下次做冲突检测
-      writeLastUpload(storeKey, { hashes: nextHashes });
-
       return {
         uploaded: done,
         skipped: considered - total,
         total,
-        conflicts: conflicts.length,
       };
     },
 
@@ -908,14 +832,6 @@ export function createUpstashClient(
           const index = JSON.parse(indexRaw) as RemoteIndex;
           const remoteSessions = index.sessions ?? [];
           const remoteStores = index.stores ?? [];
-
-          // 下载到了最新状态：把它记为“已知的云端版本”，
-          // 这样下载后本地再改，上传时不会被误判成冲突
-          const knownHashes: Record<string, string> = {};
-          for (const item of [...remoteSessions, ...remoteStores]) {
-            if (item.h) knownHashes[item.id] = item.h;
-          }
-          writeLastUpload(storeKey, { hashes: knownHashes });
 
           const sessionsById = new Map<string, any>();
           const toFetch: RemoteItem[] = [];

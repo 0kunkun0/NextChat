@@ -258,8 +258,6 @@ const en: LocaleType = {
       UploadSuccess: "Upload Success",
       UploadSuccessSkipped: (skipped: number) =>
         `Upload Success (skipped ${skipped} unchanged item(s))`,
-      UploadConflicts: (count: number) =>
-        `${count} session(s) were updated on another device; kept the remote version. Download first, then edit`,
       NothingChanged: "Nothing to upload",
       UploadFailed: "Upload Failed",
       Downloading: "Downloading",
