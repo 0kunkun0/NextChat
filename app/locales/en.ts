@@ -307,7 +307,7 @@ const en: LocaleType = {
         Compression: {
           Title: "Compress uploads",
           SubTitle:
-            "gzip before uploading to save bandwidth; decompression is pure JS, so old devices such as iOS 15 can read it",
+            "gzip before uploading to save bandwidth",
         },
 
         UpStash: {
@@ -317,7 +317,7 @@ const en: LocaleType = {
           Default: {
             Title: "Fetch defaults from server",
             SubTitle:
-              "Fill the Upstash URL / token configured in the server .env. Requires the access code and never ships to the client bundle",
+              "Fill the Upstash URL / token configured in the server .env. Requires the access code.",
             Button: "Fetch",
             Loading: "Fetching",
             Success: "Server defaults applied",

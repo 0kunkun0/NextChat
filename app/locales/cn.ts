@@ -303,7 +303,7 @@ const cn = {
         Compression: {
           Title: "压缩上传",
           SubTitle:
-            "gzip 压缩后上传，可明显减少流量；解压用纯 JS 实现，iOS 15 等老设备也能读取",
+            "gzip 压缩后上传，可明显减少流量",
         },
 
         UpStash: {
@@ -313,7 +313,7 @@ const cn = {
           Default: {
             Title: "从服务器获取默认值",
             SubTitle:
-              "填充服务端 .env 里配置的 Upstash 地址 / 令牌。需要访问密码，且不会出现在前端代码里",
+              "填充服务端 .env 里配置的 Upstash 地址 / 令牌，需要访问密码",
             Button: "获取",
             Loading: "获取中",
             Success: "已填充服务端默认配置",
