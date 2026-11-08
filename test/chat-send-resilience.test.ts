@@ -16,12 +16,15 @@ describe("onUserInput", () => {
 
     const promise = store.onUserInput("survive me");
 
-    // 关键：还没 await，user 消息就应该已经写进会话了
+    // 关键：还没 await，user 消息和占位回复就应该已经在会话里了
+    // （占位回复让“停止”按钮立刻可见）
     const syncSession = useChatStore.getState().currentSession();
-    expect(syncSession.messages.at(-1)?.role).toBe("user");
-    expect(String(syncSession.messages.at(-1)?.content)).toContain(
+    expect(syncSession.messages.at(-2)?.role).toBe("user");
+    expect(String(syncSession.messages.at(-2)?.content)).toContain(
       "survive me",
     );
+    expect(syncSession.messages.at(-1)?.role).toBe("assistant");
+    expect(syncSession.messages.at(-1)?.streaming).toBe(true);
 
     // 失败不应该变成 rejected promise（unhandled rejection 会把页面带崩）
     await expect(promise).resolves.toBeUndefined();

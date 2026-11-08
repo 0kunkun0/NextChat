@@ -1326,6 +1326,15 @@ function _Chat() {
   // stop response
   const onUserStop = (messageId: string) => {
     ChatControllerPool.stop(session.id, messageId);
+
+    // 请求可能还在准备阶段（历史 / MCP 提示词还没拼完，此时没有 controller 可 abort）。
+    // 先把界面上的“生成中”停掉，空占位会在 onUserInput/chatWithApi 收尾时清理。
+    chatStore.updateTargetSession(session, (session) => {
+      const message = session.messages.find((m) => m.id === messageId);
+      if (!message?.streaming) return;
+      message.streaming = false;
+      session.messages = session.messages.concat();
+    });
   };
 
   useEffect(() => {

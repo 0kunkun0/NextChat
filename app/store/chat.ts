@@ -566,33 +566,9 @@ export const useChatStore = createPersistStore(
           });
         };
 
-        // 2. 组装要发给模型的历史。
-        //    只取新增消息之前的部分（historyEndIndex），否则会把这条 user 消息发两遍。
-        let sendMessages: RequestMessage[];
-        try {
-          const recentMessages =
-            await get().getMessagesWithMemory(historyEndIndex);
-          sendMessages = recentMessages.concat(userMessage);
-        } catch (error) {
-          console.error("[Chat] failed to assemble messages", error);
-          // user 消息已经保存了，这里补一条错误回复：用户能看到失败原因，
-          // 也能直接点它下面的「重新生成」重试，不用重新输入。
-          insertReply(
-            createMessage({
-              role: "assistant",
-              isError: true,
-              content: prettyObject({
-                error: true,
-                message: `failed to send: ${
-                  (error as Error)?.message ?? error
-                }`,
-              }),
-            }),
-          );
-          return;
-        }
-
-        // 3. 占位回复 + 发起请求
+        // 2. 先插入占位回复：用户一点发送就能看到“正在输入”，也能立刻按停止。
+        //    历史组装可能要读 MCP 提示词 / 记忆摘要，慢的时候要等好几秒，
+        //    以前这段时间里界面上什么都没有，想停止都无从下手。
         const botMessage: ChatMessage = createMessage({
           role: "assistant",
           streaming: true,
@@ -601,6 +577,64 @@ export const useChatStore = createPersistStore(
 
         insertReply(botMessage);
 
+        // 3. 组装要发给模型的历史。
+        //    只取新增消息之前的部分（historyEndIndex），否则会把这条 user 消息发两遍。
+        let sendMessages: RequestMessage[];
+        try {
+          const recentMessages =
+            await get().getMessagesWithMemory(historyEndIndex);
+          sendMessages = recentMessages.concat(userMessage);
+        } catch (error) {
+          // 用户已经点了停止：直接把占位删掉，不必再报错
+          // （注意先判断再 remove，remove 会把取消标记清掉）
+          if (ChatControllerPool.isCancelled(session.id, botMessage.id)) {
+            ChatControllerPool.remove(session.id, botMessage.id);
+            get().updateTargetSession(session, (target) => {
+              target.messages = target.messages.filter(
+                (m) => m.id !== botMessage.id,
+              );
+            });
+            return;
+          }
+
+          ChatControllerPool.remove(session.id, botMessage.id);
+          console.error("[Chat] failed to assemble messages", error);
+          // user 消息已经保存了，这里补一条错误回复：用户能看到失败原因，
+          // 也能直接点它下面的「重新生成」重试，不用重新输入。
+          get().updateTargetSession(session, (target) => {
+            const index = target.messages.findIndex(
+              (m) => m.id === botMessage.id,
+            );
+            if (index < 0) return;
+
+            const messages = target.messages.slice();
+            messages[index] = createMessage({
+              role: "assistant",
+              isError: true,
+              content: prettyObject({
+                error: true,
+                message: `failed to send: ${
+                  (error as Error)?.message ?? error
+                }`,
+              }),
+            });
+            target.messages = messages;
+          });
+          return;
+        }
+
+        // 4. 准备阶段就点了停止：收尾，不要真的发请求
+        if (ChatControllerPool.isCancelled(session.id, botMessage.id)) {
+          ChatControllerPool.remove(session.id, botMessage.id);
+          get().updateTargetSession(session, (target) => {
+            target.messages = target.messages.filter(
+              (m) => m.id !== botMessage.id,
+            );
+          });
+          return;
+        }
+
+        // 5. 发起请求
         get().chatWithApi({
           session,
           sendMessages,
@@ -651,6 +685,24 @@ export const useChatStore = createPersistStore(
 
           const isAborted = error?.message?.includes?.("aborted");
           const message = error?.message ?? String(error);
+
+          // 还没吐出任何内容就被用户停止：把这条空占位直接删掉，
+          // 不要留一个只有 "aborted" 字样的错误气泡
+          if (isAborted && !botMessage.content) {
+            botMessage.streaming = false;
+            botMessage.isError = false;
+            get().updateTargetSession(session, (session) => {
+              session.messages = session.messages.filter(
+                (m) => m.id !== botMessage.id,
+              );
+            });
+            flush();
+            // 交给调用方收尾（比如重新生成时把空候选删掉）
+            options.onError?.(error, true);
+            ChatControllerPool.remove(session.id, trackingId);
+            return;
+          }
+
           botMessage.content +=
             "\n\n" +
             prettyObject({
@@ -810,6 +862,33 @@ export const useChatStore = createPersistStore(
         // 立刻刷新一次，显示“正在输入”（不等下面的历史拼装）
         flush();
 
+        // 准备阶段就被停止：把刚加的空候选删掉，切回原来的回复
+        const dropEmptyVariant = () => {
+          get().updateTargetSession(session, (session) => {
+            const message = session.messages.find((m) => m.id === target.id);
+            if (!message?.variants) return;
+
+            message.variants = message.variants.filter(
+              (_, i) => i !== newIndex,
+            );
+            message.variantIndex = Math.max(
+              0,
+              Math.min(message.variantIndex ?? 0, message.variants.length - 1),
+            );
+
+            const variant = message.variants[message.variantIndex];
+            if (variant) applyMessageVariant(message, variant);
+            message.streaming = false;
+            session.messages = session.messages.concat();
+          });
+        };
+
+        if (ChatControllerPool.isCancelled(session.id, target.id)) {
+          ChatControllerPool.remove(session.id, target.id);
+          dropEmptyVariant();
+          return;
+        }
+
         try {
           // 只拼接到这条回复之前的历史（包含它对应的 user 消息）。
           // 这一步可能比较慢（MCP 提示词 / 记忆摘要），所以放在刷新之后。
@@ -822,6 +901,10 @@ export const useChatStore = createPersistStore(
             botMessage,
             trackingId: target.id,
             flush,
+            onError: (_error, isAborted) => {
+              // 还没生成任何内容就停止：不留空候选
+              if (isAborted && !botMessage.content) dropEmptyVariant();
+            },
           });
         } catch (e) {
           // 历史构造失败：把状态收回来，别让消息一直卡在“生成中”
