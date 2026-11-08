@@ -2204,44 +2204,6 @@ function _Chat() {
                                     );
                                   }}
                                 ></IconButton>
-
-                                {/* 气泡左上角：这条回复是否生成完成 */}
-                                {message.role === "assistant" && (
-                                  <label
-                                    className={
-                                      styles["chat-message-complete-toggle"]
-                                    }
-                                    title={
-                                      Locale.Chat.EditMessage.Complete.Hint
-                                    }
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      aria-label={
-                                        Locale.Chat.EditMessage.Complete.Label
-                                      }
-                                      checked={message.isComplete !== false}
-                                      onChange={(e) => {
-                                        const checked = e.currentTarget.checked;
-                                        chatStore.updateTargetSession(
-                                          session,
-                                          (session) => {
-                                            const m = session.messages.find(
-                                              (m) => m.id === message.id,
-                                            );
-                                            if (!m) return;
-                                            m.isComplete = checked;
-                                            session.messages =
-                                              session.messages.concat();
-                                          },
-                                        );
-                                      }}
-                                    />
-                                    <span>
-                                      {Locale.Chat.EditMessage.Complete.Short}
-                                    </span>
-                                  </label>
-                                )}
                               </div>
                               {isUser ? (
                                 <Avatar avatar={config.avatar} />
@@ -2341,6 +2303,54 @@ function _Chat() {
                                             )
                                           }
                                         />
+                                      )}
+
+                                      {/* 这条回复是否生成完成（取消勾选后出现「继续生成」） */}
+                                      {message.role === "assistant" && (
+                                        <label
+                                          className={
+                                            styles["chat-message-complete"]
+                                          }
+                                          title={
+                                            Locale.Chat.EditMessage.Complete
+                                              .Hint
+                                          }
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            aria-label={
+                                              Locale.Chat.EditMessage.Complete
+                                                .Label
+                                            }
+                                            checked={
+                                              message.isComplete !== false
+                                            }
+                                            onChange={(e) => {
+                                              const checked =
+                                                e.currentTarget.checked;
+                                              chatStore.updateTargetSession(
+                                                session,
+                                                (session) => {
+                                                  const m =
+                                                    session.messages.find(
+                                                      (m) =>
+                                                        m.id === message.id,
+                                                    );
+                                                  if (!m) return;
+                                                  m.isComplete = checked;
+                                                  session.messages =
+                                                    session.messages.concat();
+                                                },
+                                              );
+                                            }}
+                                          />
+                                          <span>
+                                            {
+                                              Locale.Chat.EditMessage.Complete
+                                                .Short
+                                            }
+                                          </span>
+                                        </label>
                                       )}
                                     </>
                                   )}

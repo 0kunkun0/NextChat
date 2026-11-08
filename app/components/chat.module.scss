@@ -449,43 +449,52 @@
 .chat-message-avatar {
   position: relative;
 
-  /* 悬停头像时浮出的编辑工具条：编辑按钮 + 「生成完成」勾选框 */
   .chat-message-edit {
     position: absolute;
-    top: 50%;
-    left: 0;
-    transform: translateY(-50%);
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
     display: flex;
     align-items: center;
-    gap: 4px;
-    width: max-content;
-    padding: 2px 6px 2px 2px;
-    border-radius: 12px;
-    background-color: var(--white);
-    box-shadow: var(--card-shadow);
+    justify-content: center;
     opacity: 0;
     transition: all ease 0.3s;
-    z-index: 2;
 
     button {
       padding: 7px;
     }
   }
 
-  .chat-message-complete-toggle {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-    font-size: 11px;
-    color: var(--black);
-    white-space: nowrap;
-    cursor: pointer;
-    user-select: none;
-
-    input {
-      margin: 0;
-      cursor: pointer;
+  /* Specific styles for iOS devices */
+  @media screen and (max-device-width: 812px) and (-webkit-min-device-pixel-ratio: 2) {
+    @supports (-webkit-touch-callout: none) {
+      .chat-message-edit {
+        top: -8%;
+      }
     }
+  }
+}
+
+/* 「生成完成」勾选框：放在消息操作栏里，不会盖住重试等按钮 */
+.chat-message-complete {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--black);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  opacity: 0.65;
+  transition: opacity ease 0.3s;
+
+  input {
+    margin: 0;
+    cursor: pointer;
+  }
+
+  &:hover {
+    opacity: 1;
   }
 }
 
