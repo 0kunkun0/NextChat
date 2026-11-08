@@ -83,8 +83,10 @@ self.addEventListener("activate", function (event) {
   console.log("ServiceWorker activated.");
   event.waitUntil(
     (async () => {
-      // 有新版本激活：丢掉旧的 HTML 外壳，保证这次刷新拿到新界面
-      await caches.delete(APP_SHELL_CACHE);
+      // 注意：这里不能删 APP_SHELL_CACHE。
+      // 首次安装时 install 刚把首页预热进去，activate 紧接着执行，
+      // 删掉就等于白预热了（这就是之前每次冷启动还是白屏的原因）。
+      // 版本更新交给导航请求的 stale-while-revalidate 在后台刷新。
 
       // 清理不属于当前版本的缓存
       const keep = [
@@ -109,14 +111,32 @@ self.addEventListener("install", function (event) {
     (async () => {
       await caches.open(CHATGPT_NEXT_WEB_CACHE);
 
-      // 装好之后先把首页 HTML 抓一份进缓存：
-      // 这样第一次打开（以及下次启动）也能直接命中缓存，不用等服务器
+      // 装好之后预缓存首页和三方资源：
+      // 这样第一次打开（以及之后每次启动）都能直接命中缓存，不用等服务器
       try {
         const response = await fetch("/", { cache: "no-store" });
-        if (response && response.ok) {
-          const shell = await caches.open(APP_SHELL_CACHE);
-          await shell.put("/", response.clone());
-        }
+        if (!response || !response.ok) return;
+
+        const html = await response.clone().text();
+        const shell = await caches.open(APP_SHELL_CACHE);
+        await shell.put("/", response);
+
+        // 首页里引用的 JS / CSS 一起抓下来，避免首次启动还要等网络
+        const assets = Array.from(
+          html.matchAll(/(?:src|href)="(\/_next\/static\/[^"]+)"/g),
+        ).map((match) => match[1]);
+
+        const staticCache = await caches.open(APP_STATIC_CACHE);
+        await Promise.all(
+          assets.map(async (url) => {
+            try {
+              const asset = await fetch(url);
+              if (asset && asset.ok) await staticCache.put(url, asset.clone());
+            } catch (e) {
+              // 单个资源失败不影响整体
+            }
+          }),
+        );
       } catch (e) {
         // 离线安装之类的场景，忽略即可，首次打开时还会再缓存
       }

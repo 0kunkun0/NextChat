@@ -763,8 +763,6 @@ export const useChatStore = createPersistStore(
         }
 
         const modelConfig = session.mask.modelConfig;
-        // 只拼接到这条回复之前的历史（包含它对应的 user 消息）
-        const sendMessages = await get().getMessagesWithMemory(messageIndex);
 
         // 第一次生成候选时，原来的回复会被保存成第 1 个候选
         const botMessage = createMessage({
@@ -774,6 +772,8 @@ export const useChatStore = createPersistStore(
         });
         const newIndex = addMessageVariant(target, snapshotMessage(botMessage));
 
+        // 先同步切到“生成中”：界面立刻清空旧内容、显示正在输入，
+        // 同时也能挡住重复点击（否则连点几次会叠出好几条回复）。
         target.streaming = true;
         target.isError = false;
         target.tools = undefined;
@@ -807,17 +807,29 @@ export const useChatStore = createPersistStore(
           });
         };
 
-        // 立刻刷新一次，显示“正在输入”
+        // 立刻刷新一次，显示“正在输入”（不等下面的历史拼装）
         flush();
 
-        get().chatWithApi({
-          session,
-          sendMessages,
-          modelConfig,
-          botMessage,
-          trackingId: target.id,
-          flush,
-        });
+        try {
+          // 只拼接到这条回复之前的历史（包含它对应的 user 消息）。
+          // 这一步可能比较慢（MCP 提示词 / 记忆摘要），所以放在刷新之后。
+          const sendMessages = await get().getMessagesWithMemory(messageIndex);
+
+          get().chatWithApi({
+            session,
+            sendMessages,
+            modelConfig,
+            botMessage,
+            trackingId: target.id,
+            flush,
+          });
+        } catch (e) {
+          // 历史构造失败：把状态收回来，别让消息一直卡在“生成中”
+          console.error("[Chat] regenerate failed", e);
+          botMessage.streaming = false;
+          botMessage.isError = true;
+          flush();
+        }
       },
 
       /**
@@ -850,15 +862,6 @@ export const useChatStore = createPersistStore(
 
         // 已经写出来的内容就是前缀，必须原样（不做任何过滤）送回去
         const prefix = getMessageTextContent(target);
-        const sendMessages = await get().getMessagesWithMemory(
-          messageIndex + 1,
-        );
-        if (sendMessages.length === 0) return;
-
-        // 最后一条必须是这条 assistant 前缀
-        const last = sendMessages[sendMessages.length - 1] as ChatMessage;
-        last.role = "assistant";
-        last.content = prefix;
 
         // botMessage 只装“续写出来的部分”
         const botMessage = createMessage({
@@ -881,9 +884,31 @@ export const useChatStore = createPersistStore(
           });
         };
 
-        // 先把状态切到“生成中”，界面上按钮立刻变成停止
+        // 先把状态切到“生成中”：按钮立刻变成停止，也挡住重复点击
         target.streaming = true;
         flush();
+
+        let sendMessages: RequestMessage[];
+        try {
+          sendMessages = await get().getMessagesWithMemory(messageIndex + 1);
+        } catch (e) {
+          console.error("[Chat] continue failed", e);
+          botMessage.streaming = false;
+          botMessage.isError = true;
+          flush();
+          return;
+        }
+
+        if (sendMessages.length === 0) {
+          botMessage.streaming = false;
+          flush();
+          return;
+        }
+
+        // 最后一条必须是这条 assistant 前缀
+        const last = sendMessages[sendMessages.length - 1] as ChatMessage;
+        last.role = "assistant";
+        last.content = prefix;
 
         get().chatWithApi({
           session,

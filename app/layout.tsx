@@ -48,6 +48,17 @@ export default function RootLayout({
           crossOrigin="use-credentials"
         ></link>
         <script src="/serviceWorkerRegister.js" defer></script>
+        {/*
+          首屏兜底背景色：CSS 还没下载完 / PWA 冷启动时先铺上正确的底色，
+          否则会闪一下白屏（深色主题下尤其明显）
+        */}
+        <style
+          dangerouslySetInnerHTML={{
+            __html:
+              "html,body{margin:0;background-color:#fafafa}" +
+              "@media (prefers-color-scheme:dark){html,body{background-color:#151515}}",
+          }}
+        />
       </head>
       <body>
         {children}
