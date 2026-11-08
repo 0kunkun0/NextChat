@@ -44,7 +44,7 @@ const cn = {
       Complete: {
         Label: "生成完成",
         Short: "完成",
-        Hint: "取消勾选后，这条回复上会出现「继续生成」，用前缀补全接着写",
+        Hint: "前缀补全",
       },
     },
     Actions: {

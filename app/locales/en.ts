@@ -45,7 +45,7 @@ const en: LocaleType = {
       Complete: {
         Label: "Generation complete",
         Short: "Done",
-        Hint: "Uncheck to show Continue on the message and finish it with prefix completion",
+        Hint: "Prefix Completion",
       },
     },
     Actions: {
