@@ -113,17 +113,22 @@
   }
 }
 
-/* 悬浮在输入面板上方、贴住可视区域右下角的“回到底部” */
+/* 悬停在聊天区右下角的“回到底部” */
 .chat-scroll-to-bottom {
   position: sticky;
-  bottom: 8px;
+  bottom: 0;
   z-index: 10;
+  /* 高度为 0：否则会在输入面板上方多出一条空白横条 */
+  height: 0;
   display: flex;
   justify-content: flex-end;
   pointer-events: none;
 
   .chat-input-action {
     pointer-events: auto;
+    /* 从 0 高度的定位点向上浮起，悬停在可视区右下角 */
+    transform: translateY(calc(-100% - 16px));
+    margin-right: 4px;
   }
 }
 

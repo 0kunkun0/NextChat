@@ -320,6 +320,7 @@ export function SideBar(props: { className?: string }) {
             <div className={clsx(styles["sidebar-action"], styles.mobile)}>
               <IconButton
                 icon={<DeleteIcon />}
+                className={styles["sidebar-bar-button"]}
                 onClick={async () => {
                   if (await showConfirm(Locale.Home.DeleteChat)) {
                     chatStore.deleteSession(chatStore.currentSessionIndex);
@@ -332,6 +333,7 @@ export function SideBar(props: { className?: string }) {
                 <IconButton
                   aria={Locale.Settings.Title}
                   icon={<SettingsIcon />}
+                  className={styles["sidebar-bar-button"]}
                   shadow
                 />
               </Link>
@@ -341,6 +343,7 @@ export function SideBar(props: { className?: string }) {
                 <IconButton
                   aria={Locale.Export.MessageFromChatGPT}
                   icon={<GithubIcon />}
+                  className={styles["sidebar-bar-button"]}
                   shadow
                 />
               </a>
@@ -351,6 +354,7 @@ export function SideBar(props: { className?: string }) {
           <IconButton
             icon={<AddIcon />}
             text={shouldNarrow ? undefined : Locale.Home.NewChat}
+            className={styles["sidebar-bar-button"]}
             onClick={() => {
               if (config.dontShowMaskSplashScreen) {
                 chatStore.newSession();

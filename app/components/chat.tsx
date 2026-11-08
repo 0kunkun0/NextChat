@@ -11,7 +11,6 @@ import React, {
 } from "react";
 
 import SendWhiteIcon from "../icons/send-white.svg";
-import BrainIcon from "../icons/brain.svg";
 import RenameIcon from "../icons/rename.svg";
 import EditIcon from "../icons/rename.svg";
 import ExportIcon from "../icons/share.svg";
@@ -249,28 +248,12 @@ export function SessionConfigModel(props: { onClose: () => void }) {
 }
 
 function PromptToast(props: {
-  showToast?: boolean;
   showModal?: boolean;
   setShowModal: (_: boolean) => void;
 }) {
-  const chatStore = useChatStore();
-  const session = chatStore.currentSession();
-  const context = session.mask.context;
-
   return (
     <div className={styles["prompt-toast"]} key="prompt-toast">
-      {props.showToast && context.length > 0 && (
-        <div
-          className={clsx(styles["prompt-toast-inner"], "clickable")}
-          role="button"
-          onClick={() => props.setShowModal(true)}
-        >
-          <BrainIcon />
-          <span className={styles["prompt-toast-content"]}>
-            {Locale.Context.Toast(context.length)}
-          </span>
-        </div>
-      )}
+      {/* 「包含 N 条预设提示词」的提示条已去掉：滚上去时会打断阅读 */}
       {props.showModal && (
         <SessionConfigModel onClose={() => props.setShowModal(false)} />
       )}
@@ -2130,7 +2113,6 @@ function _Chat() {
           </div>
 
           <PromptToast
-            showToast={!hitBottom}
             showModal={showPromptModal}
             setShowModal={setShowPromptModal}
           />

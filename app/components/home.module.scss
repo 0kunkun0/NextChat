@@ -42,7 +42,9 @@
   width: var(--sidebar-width);
   box-sizing: border-box;
   padding: 20px;
-  background-color: var(--second);
+  /* 侧边栏配色：见 globals.scss 里的 --sidebar-* */
+  background-color: var(--sidebar-color);
+  color: var(--sidebar-text-color);
   display: flex;
   flex-direction: column;
   box-shadow: inset -2px 0px 2px 0px rgb(0, 0, 0, 0.05);
@@ -59,6 +61,17 @@
       &:not(:last-child) {
         margin-right: 10px;
       }
+    }
+  }
+
+  /* 侧边栏里的圆角按钮跟随侧边栏配色：
+     纯黑底上如果还用 --white 就会和背景糊在一起 */
+  .sidebar-bar-button {
+    background-color: var(--sidebar-item-color);
+    color: var(--sidebar-text-color);
+
+    &:hover {
+      background-color: var(--sidebar-hover-color);
     }
   }
 
@@ -174,7 +187,7 @@
 
 .chat-item {
   padding: 10px 14px;
-  background-color: var(--white);
+  background-color: var(--sidebar-item-color);
   border-radius: 10px;
   margin-bottom: 10px;
   box-shadow: var(--card-shadow);
@@ -187,7 +200,7 @@
 }
 
 .chat-item:hover {
-  background-color: var(--hover-color);
+  background-color: var(--sidebar-hover-color);
 }
 
 .chat-item-selected {
