@@ -132,6 +132,7 @@ import { MsEdgeTTS, OUTPUT_FORMAT } from "../utils/ms_edge_tts";
 
 import { isEmpty } from "lodash-es";
 import { getModelProvider } from "../utils/model";
+import { shouldShowMessageActions } from "../utils/message-actions";
 import { RealtimeChat } from "@/app/components/realtime-chat";
 import clsx from "clsx";
 import { getAvailableClientsCount, isMcpEnabled } from "../mcp/actions";
@@ -2148,10 +2149,11 @@ function _Chat() {
                   const isContext = i < context.length;
                   // 同一条消息里图片会用到好几次，别每次都重新遍历 content
                   const messageImages = getMessageImages(message);
-                  const showActions =
-                    i > 0 &&
-                    !(message.preview || message.content.length === 0) &&
-                    !isContext;
+                  const showActions = shouldShowMessageActions(
+                    message,
+                    isContext,
+                    i,
+                  );
                   const showTyping = message.preview || message.streaming;
 
                   const shouldShowClearContextDivider =
