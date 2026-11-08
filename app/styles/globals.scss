@@ -26,12 +26,12 @@
   --theme: dark;
 
   /* color */
-  --white: rgb(24, 24, 24);
+  --white: rgb(2, 2, 2);
   --black: rgb(187, 187, 187);
   --gray: rgb(21, 21, 21);
   --primary: rgb(29, 147, 171);
-  --second: rgb(27 38 42);
-  --hover-color: #323232;
+  --second: rgb(50, 59, 62);
+  --hover-color: #080808;
 
   --bar-color: rgba(255, 255, 255, 0.1);
 
@@ -89,9 +89,12 @@
 
 html {
   height: var(--full-height);
+  /* 移动端滚到边缘时不要带着整页回弹（iOS 16+ / Android） */
+  overscroll-behavior: none;
 
-  font-family: system-ui, "Noto Sans", "SF Pro SC", "SF Pro Text", "SF Pro Icons",
-    "PingFang SC", "Helvetica Neue", "Helvetica", "Arial", sans-serif;
+  font-family: system-ui, "Noto Sans", "SF Pro SC", "SF Pro Text",
+    "SF Pro Icons", "PingFang SC", "Helvetica Neue", "Helvetica", "Arial",
+    sans-serif;
 }
 
 body {
@@ -107,6 +110,7 @@ body {
   user-select: none;
   touch-action: pan-x pan-y;
   overflow: hidden;
+  overscroll-behavior: none;
 
   @media only screen and (max-width: 600px) {
     background-color: var(--second);
@@ -272,7 +276,7 @@ div.math {
 
 pre {
   position: relative;
-  
+
   &:hover .copy-code-button {
     pointer-events: all;
     transform: translateX(0px);
@@ -315,7 +319,7 @@ pre {
     display: inline-flex;
     justify-content: center;
     pointer-events: none;
-    button{
+    button {
       pointer-events: auto;
       margin-top: 3em;
       margin-bottom: 4em;
@@ -326,14 +330,18 @@ pre {
       text-align: center;
       color: white;
       background: #464e4e;
-    } 
+    }
   }
-  
+
   .expanded {
     background-image: none;
   }
   .collapsed {
-    background-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.06));
+    background-image: linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.8),
+      rgba(0, 0, 0, 0.06)
+    );
   }
 }
 

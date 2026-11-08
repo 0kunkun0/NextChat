@@ -648,6 +648,54 @@ function useScrollToBottom(
   };
 }
 
+/**
+ * iOS 15 及更早的 Safari 不认 `overscroll-behavior`：
+ * 消息列表滚到顶/底之后继续拖动，整个页面会跟着“回弹”。
+ *
+ * 支持该属性的浏览器交给 CSS 处理；不支持的才挂这个兜底：
+ * 到达边缘时拦掉 touchmove，让列表停在原地。
+ */
+function usePreventOverscroll(ref: RefObject<HTMLDivElement>) {
+  useEffect(() => {
+    const dom = ref.current;
+    if (!dom) return;
+
+    if (
+      typeof CSS !== "undefined" &&
+      typeof CSS.supports === "function" &&
+      CSS.supports("overscroll-behavior", "none")
+    ) {
+      return;
+    }
+
+    let startY = 0;
+
+    const onTouchStart = (e: TouchEvent) => {
+      startY = e.touches[0]?.clientY ?? 0;
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY ?? 0;
+      const delta = y - startY;
+      const atTop = dom.scrollTop <= 0;
+      const atBottom = dom.scrollTop + dom.clientHeight >= dom.scrollHeight - 1;
+
+      // 手指往下拉（delta > 0）且已经在顶部 / 手指往上推且已经在底部
+      if ((atTop && delta > 0) || (atBottom && delta < 0)) {
+        e.preventDefault();
+      }
+    };
+
+    dom.addEventListener("touchstart", onTouchStart, { passive: true });
+    dom.addEventListener("touchmove", onTouchMove, { passive: false });
+
+    return () => {
+      dom.removeEventListener("touchstart", onTouchStart);
+      dom.removeEventListener("touchmove", onTouchMove);
+    };
+  }, [ref]);
+}
+
 export function ChatActions(props: {
   uploadImage: () => void;
   setAttachImages: (images: string[]) => void;
@@ -1178,6 +1226,8 @@ function _Chat() {
     (isScrolledToBottom || isAttachWithTop) && !isTyping,
     session.messages,
   );
+  // 老版本 iOS 上阻止列表滚到边缘后整页回弹
+  usePreventOverscroll(scrollRef);
   const [hitBottom, setHitBottom] = useState(true);
   const isMobileScreen = useMobileScreen();
   const navigate = useNavigate();
@@ -1431,7 +1481,8 @@ function _Chat() {
         );
       })
       .finally(() => setIsLoading(false));
-    inputRef.current?.focus();
+    // 移动端不自动聚焦：会直接弹出键盘挡住内容
+    if (!isMobileScreen) inputRef.current?.focus();
   };
 
   /**
@@ -1460,7 +1511,7 @@ function _Chat() {
       chatStore
         .regenerateMessage(session, reply.id)
         .catch((e) => console.error("[Chat] regenerate failed", e));
-      inputRef.current?.focus();
+      // 不自动聚焦输入框：移动端会直接弹出键盘，盖住刚生成的回复
       return;
     }
     onResend(message);
@@ -2228,11 +2279,6 @@ function _Chat() {
                                 </>
                               )}
                             </div>
-                            {!isUser && (
-                              <div className={styles["chat-model-name"]}>
-                                {message.model}
-                              </div>
-                            )}
 
                             {showActions && (
                               <div className={styles["chat-message-actions"]}>

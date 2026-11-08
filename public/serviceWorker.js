@@ -1,17 +1,126 @@
 const CHATGPT_NEXT_WEB_CACHE = "chatgpt-next-web-cache";
 const CHATGPT_NEXT_WEB_FILE_CACHE = "chatgpt-next-web-file";
+/** 页面外壳（HTML）：缓存优先，后台更新 */
+const APP_SHELL_CACHE = "chatgpt-next-web-shell-v1";
+/** 带 hash 的静态资源：内容不会变，缓存优先 */
+const APP_STATIC_CACHE = "chatgpt-next-web-static-v1";
 let a="useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict";let nanoid=(e=21)=>{let t="",r=crypto.getRandomValues(new Uint8Array(e));for(let n=0;n<e;n++)t+=a[63&r[n]];return t};
+
+self.addEventListener("fetch", function (event) {
+  const request = event.request;
+  if (request.method !== "GET") return;
+
+  let url;
+  try {
+    url = new URL(request.url);
+  } catch (e) {
+    return;
+  }
+
+  // 只处理自己的资源；接口一律走网络，绝不缓存聊天响应
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith("/api/")) return;
+  if (url.pathname === "/serviceWorker.js") return;
+
+  // 打开页面 / 切回 PWA：先给缓存（秒开），同时后台拉最新版本回填缓存
+  if (request.mode === "navigate") {
+    event.respondWith(staleWhileRevalidate(request, APP_SHELL_CACHE));
+    return;
+  }
+
+  // Next 的 /_next/static 带内容 hash，文件名变了内容才会变 → 缓存优先
+  if (
+    url.pathname.startsWith("/_next/static/") ||
+    ["script", "style", "font", "image"].includes(request.destination)
+  ) {
+    event.respondWith(cacheFirst(request, APP_STATIC_CACHE));
+  }
+});
+
+async function staleWhileRevalidate(request, cacheName) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(request);
+
+  // 后台更新：不管有没有命中缓存，都去服务器要一份新的
+  const networkPromise = fetch(request)
+    .then((response) => {
+      if (response && response.ok) {
+        cache.put(request, response.clone());
+      }
+      return response;
+    })
+    .catch(() => null);
+
+  if (cached) {
+    // 不 await，让页面立刻用缓存渲染
+    networkPromise.catch(() => {});
+    return cached;
+  }
+
+  const fresh = await networkPromise;
+  return (
+    fresh ||
+    new Response("离线且没有缓存", {
+      status: 503,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    })
+  );
+}
+
+async function cacheFirst(request, cacheName) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+
+  const response = await fetch(request).catch(() => null);
+  if (response && response.ok) {
+    cache.put(request, response.clone());
+  }
+  return response || Response.error();
+}
 
 self.addEventListener("activate", function (event) {
   console.log("ServiceWorker activated.");
+  event.waitUntil(
+    (async () => {
+      // 有新版本激活：丢掉旧的 HTML 外壳，保证这次刷新拿到新界面
+      await caches.delete(APP_SHELL_CACHE);
+
+      // 清理不属于当前版本的缓存
+      const keep = [
+        CHATGPT_NEXT_WEB_CACHE,
+        CHATGPT_NEXT_WEB_FILE_CACHE,
+        APP_SHELL_CACHE,
+        APP_STATIC_CACHE,
+      ];
+      const keys = await caches.keys();
+      await Promise.all(
+        keys.filter((key) => !keep.includes(key)).map((key) => caches.delete(key)),
+      );
+
+      await self.clients.claim();
+    })(),
+  );
 });
 
 self.addEventListener("install", function (event) {
   self.skipWaiting();  // enable new version
   event.waitUntil(
-    caches.open(CHATGPT_NEXT_WEB_CACHE).then(function (cache) {
-      return cache.addAll([]);
-    }),
+    (async () => {
+      await caches.open(CHATGPT_NEXT_WEB_CACHE);
+
+      // 装好之后先把首页 HTML 抓一份进缓存：
+      // 这样第一次打开（以及下次启动）也能直接命中缓存，不用等服务器
+      try {
+        const response = await fetch("/", { cache: "no-store" });
+        if (response && response.ok) {
+          const shell = await caches.open(APP_SHELL_CACHE);
+          await shell.put("/", response.clone());
+        }
+      } catch (e) {
+        // 离线安装之类的场景，忽略即可，首次打开时还会再缓存
+      }
+    })(),
   );
 });
 

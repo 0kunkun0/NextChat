@@ -400,11 +400,21 @@
       flex-wrap: nowrap;
     }
   }
+}
 
-  .chat-model-name {
-    font-size: 12px;
-    color: var(--black);
-    margin-left: 6px;
+/* 触摸设备没有 hover：操作按钮直接常驻，
+   否则第一次点按只是触发 hover，要连点两次才能真正按到按钮 */
+@media (hover: none) {
+  .chat-message-container {
+    .chat-message-actions {
+      opacity: 1;
+      pointer-events: all;
+      transform: scale(1) translateY(0);
+    }
+
+    .chat-message-edit {
+      pointer-events: auto;
+    }
   }
 }
 

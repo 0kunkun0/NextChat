@@ -7,7 +7,7 @@ import RemarkGfm from "remark-gfm";
 import RehypeHighlight from "rehype-highlight";
 import { useRef, useState, RefObject, useEffect, useMemo } from "react";
 import { copyToClipboard, useWindowSize } from "../utils";
-import { getMarkdownInput } from "../utils/markdown";
+import { getMarkdownInput, remarkFixLiteralStrong } from "../utils/markdown";
 import mermaid from "mermaid";
 import Locale from "../locales";
 import LoadingIcon from "../icons/three-dots.svg";
@@ -246,6 +246,8 @@ function _MarkDownContent(props: { content: string }) {
         // singleTilde: false —— 让 ~xxx~ 保持原样，只有 ~~xxx~~ 才是删除线
         [RemarkGfm, { singleTilde: false }],
         RemarkBreaks,
+        // 中文里 `**（xxx）**` 这类写法 CommonMark 不认，补救成粗体
+        remarkFixLiteralStrong,
       ]}
       rehypePlugins={
         lowMemory
