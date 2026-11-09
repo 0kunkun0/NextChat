@@ -12,6 +12,7 @@ import MaskIcon from "../icons/mask.svg";
 import McpIcon from "../icons/mcp.svg";
 import DragIcon from "../icons/drag.svg";
 import DiscoveryIcon from "../icons/discovery.svg";
+import ReloadIcon from "../icons/reload.svg";
 
 import Locale from "../locales";
 
@@ -27,6 +28,7 @@ import {
 } from "../constant";
 
 import { Link, useNavigate } from "react-router-dom";
+import { clearServiceWorkerCache } from "../utils/pwa";
 import { isIOS, useMobileScreen } from "../utils";
 import dynamic from "next/dynamic";
 import { Selector, showConfirm } from "./ui-lib";
@@ -285,6 +287,16 @@ export function SideBar(props: { className?: string }) {
             text={shouldNarrow ? undefined : Locale.Discovery.Name}
             className={styles["sidebar-bar-button"]}
             onClick={() => setshowDiscoverySelector(true)}
+            shadow
+          />
+          {/* 清掉本地 SW / 缓存并重载：改了代码但 PWA 还在跑旧版本时用 */}
+          <IconButton
+            icon={<ReloadIcon />}
+            text={shouldNarrow ? undefined : Locale.Chat.Actions.RefreshCache}
+            className={styles["sidebar-bar-button"]}
+            onClick={() => {
+              clearServiceWorkerCache();
+            }}
             shadow
           />
         </div>

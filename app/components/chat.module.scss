@@ -126,9 +126,13 @@
 
   .chat-input-action {
     pointer-events: auto;
-    /* 从 0 高度的定位点向上浮起，悬停在可视区右下角 */
-    transform: translateY(calc(-100% - 16px));
-    margin-right: 4px;
+    /* .chat-input-action 默认带 slide-in 动画，它的 keyframes 会覆盖下面的
+       transform，导致按钮先出现在输入面板上、动画结束才跳回正确位置。
+       这里换成只改透明度的淡入。 */
+    animation: fade-in ease 0.2s;
+    /* 从 0 高度的定位点向上浮起，离右下角留一点距离 */
+    transform: translateY(calc(-100% - 24px));
+    margin-right: 12px;
   }
 }
 
@@ -845,6 +849,7 @@
 }
 
 .chat-input-panel-inner {
+  position: relative; /* 发送按钮贴在输入框内部右下角 */
   cursor: text;
   display: flex;
   flex: 1;
@@ -869,7 +874,8 @@
   background-color: var(--white);
   color: var(--black);
   font-family: inherit;
-  padding: 10px 90px 10px 14px;
+  /* 右侧留出圆球按钮的位置 */
+  padding: 10px 56px 10px 14px;
   resize: none;
   outline: none;
   box-sizing: border-box;
@@ -881,22 +887,40 @@
 .chat-input:focus {
 }
 
+/* 圆形发送按钮：只有图标，贴在输入框右下角。
+   比原来的“大块按钮”小很多，移动端移动光标时不容易误触 */
 .chat-input-send {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background-color: var(--primary);
   color: white;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease;
 
-  position: absolute;
-  right: 30px;
-  bottom: 32px;
+  svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  &:active {
+    transform: scale(0.9);
+  }
 }
 
 @media only screen and (max-width: 600px) {
   .chat-input {
     font-size: 16px;
-  }
-
-  .chat-input-send {
-    bottom: 30px;
   }
 }
 

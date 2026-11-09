@@ -21,3 +21,14 @@
     transform: translateY(0px);
   }
 }
+
+/* 只淡入、不动 transform：给已经自带 transform 定位的元素用 */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}

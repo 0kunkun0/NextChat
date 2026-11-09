@@ -73,6 +73,7 @@ const en: LocaleType = {
       ContinueGenerate: "Continue",
       ContinueUnsupported:
         "This model does not support continuation (only DeepSeek prefix completion)",
+      RefreshCache: "Refresh cache",
       Debug: "Raw Data",
     },
     Commands: {
@@ -306,8 +307,7 @@ const en: LocaleType = {
 
         Compression: {
           Title: "Compress uploads",
-          SubTitle:
-            "gzip before uploading to save bandwidth",
+          SubTitle: "gzip before uploading to save bandwidth",
         },
 
         UpStash: {

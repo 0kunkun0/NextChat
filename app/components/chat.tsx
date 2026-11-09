@@ -2559,13 +2559,15 @@ function _Chat() {
                     })}
                   </div>
                 )}
-                <IconButton
-                  icon={<SendWhiteIcon />}
-                  text={Locale.Chat.Send}
+                <button
+                  type="button"
                   className={styles["chat-input-send"]}
-                  type="primary"
+                  aria-label={Locale.Chat.Send}
+                  title={Locale.Chat.Send}
                   onClick={() => doSubmit(userInput)}
-                />
+                >
+                  <SendWhiteIcon />
+                </button>
               </label>
             </div>
           </div>

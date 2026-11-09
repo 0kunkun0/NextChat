@@ -71,6 +71,7 @@ const cn = {
       Regenerate: "重新生成",
       ContinueGenerate: "继续生成",
       ContinueUnsupported: "当前模型不支持继续生成（仅 DeepSeek 支持前缀补全）",
+      RefreshCache: "刷新 SW 缓存",
       Debug: "原始数据",
     },
     Commands: {
@@ -302,8 +303,7 @@ const cn = {
 
         Compression: {
           Title: "压缩上传",
-          SubTitle:
-            "gzip 压缩后上传，可明显减少流量",
+          SubTitle: "gzip 压缩后上传，可明显减少流量",
         },
 
         UpStash: {
