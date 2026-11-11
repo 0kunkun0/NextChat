@@ -29,7 +29,6 @@ import ReloadIcon from "../icons/reload.svg";
 import PlayIcon from "../icons/play.svg";
 import SettingsIcon from "../icons/chat-settings.svg";
 import DeleteIcon from "../icons/clear.svg";
-import PinIcon from "../icons/pin.svg";
 import ConfirmIcon from "../icons/confirm.svg";
 import CloseIcon from "../icons/close.svg";
 import CancelIcon from "../icons/cancel.svg";
@@ -1339,6 +1338,25 @@ function _Chat() {
     });
   };
 
+  // 输入框右下角的圆球：生成中变成「停止」，平时是「发送」
+  const isGenerating = session.messages.some((m) => m.streaming);
+  const onStopAll = () => {
+    session.messages
+      .filter((m) => m.streaming)
+      .forEach((m) => ChatControllerPool.stop(session.id, m.id ?? ""));
+
+    chatStore.updateTargetSession(session, (session) => {
+      let changed = false;
+      session.messages.forEach((m) => {
+        if (m.streaming) {
+          m.streaming = false;
+          changed = true;
+        }
+      });
+      if (changed) session.messages = session.messages.concat();
+    });
+  };
+
   useEffect(() => {
     chatStore.updateTargetSession(session, (session) => {
       const stopTiming = Date.now() - REQUEST_TIMEOUT_MS;
@@ -1527,19 +1545,6 @@ function _Chat() {
       .catch((e) => console.error("[Chat] continue failed", e));
   };
 
-  const onPinMessage = (message: ChatMessage) => {
-    chatStore.updateTargetSession(session, (session) =>
-      session.mask.context.push(message),
-    );
-
-    showToast(Locale.Chat.Actions.PinToastContent, {
-      text: Locale.Chat.Actions.PinToastAction,
-      onClick: () => {
-        setShowPromptModal(true);
-      },
-    });
-  };
-
   const accessStore = useAccessStore();
   const [speechStatus, setSpeechStatus] = useState(false);
   const [speechLoading, setSpeechLoading] = useState(false);
@@ -1604,10 +1609,14 @@ function _Chat() {
 
   // preview messages
   const renderMessages = useMemo(() => {
+    // 已经有真正的“生成中”消息时，不要再补一个 "……" 的占位气泡，
+    // 否则重新生成的瞬间会同时出现两条 assistant 占位
+    const hasStreamingMessage = session.messages.some((m) => m.streaming);
+
     return context
       .concat(session.messages as RenderMessage[])
       .concat(
-        isLoading
+        isLoading && !hasStreamingMessage
           ? [
               {
                 ...createMessage({
@@ -2264,11 +2273,13 @@ function _Chat() {
                                     />
                                   ) : (
                                     <>
-                                      <ChatAction
-                                        text={Locale.Chat.Actions.Retry}
-                                        icon={<ResetIcon />}
-                                        onClick={() => onRetry(message)}
-                                      />
+                                      {message.role !== "system" && (
+                                        <ChatAction
+                                          text={Locale.Chat.Actions.Retry}
+                                          icon={<ResetIcon />}
+                                          onClick={() => onRetry(message)}
+                                        />
+                                      )}
 
                                       {/* 只有“未完成”的回复才显示继续生成（前缀补全） */}
                                       {message.role === "assistant" &&
@@ -2283,19 +2294,16 @@ function _Chat() {
                                           />
                                         )}
 
-                                      <ChatAction
-                                        text={Locale.Chat.Actions.Delete}
-                                        icon={<DeleteIcon />}
-                                        onClick={() =>
-                                          onDelete(message.id ?? i)
-                                        }
-                                      />
+                                      {message.role !== "system" && (
+                                        <ChatAction
+                                          text={Locale.Chat.Actions.Delete}
+                                          icon={<DeleteIcon />}
+                                          onClick={() =>
+                                            onDelete(message.id ?? i)
+                                          }
+                                        />
+                                      )}
 
-                                      <ChatAction
-                                        text={Locale.Chat.Actions.Pin}
-                                        icon={<PinIcon />}
-                                        onClick={() => onPinMessage(message)}
-                                      />
                                       <ChatAction
                                         text={Locale.Chat.Actions.Copy}
                                         icon={<CopyIcon />}
@@ -2305,32 +2313,37 @@ function _Chat() {
                                           )
                                         }
                                       />
-                                      <ChatAction
-                                        text={Locale.Chat.Actions.Debug}
-                                        icon={<EyeIcon />}
-                                        onClick={() => setDebugMessage(message)}
-                                      />
-                                      {config.ttsConfig.enable && (
+                                      {message.role !== "system" && (
                                         <ChatAction
-                                          text={
-                                            speechStatus
-                                              ? Locale.Chat.Actions.StopSpeech
-                                              : Locale.Chat.Actions.Speech
-                                          }
-                                          icon={
-                                            speechStatus ? (
-                                              <SpeakStopIcon />
-                                            ) : (
-                                              <SpeakIcon />
-                                            )
-                                          }
+                                          text={Locale.Chat.Actions.Debug}
+                                          icon={<EyeIcon />}
                                           onClick={() =>
-                                            openaiSpeech(
-                                              getMessageTextContent(message),
-                                            )
+                                            setDebugMessage(message)
                                           }
                                         />
                                       )}
+                                      {config.ttsConfig.enable &&
+                                        message.role !== "system" && (
+                                          <ChatAction
+                                            text={
+                                              speechStatus
+                                                ? Locale.Chat.Actions.StopSpeech
+                                                : Locale.Chat.Actions.Speech
+                                            }
+                                            icon={
+                                              speechStatus ? (
+                                                <SpeakStopIcon />
+                                              ) : (
+                                                <SpeakIcon />
+                                              )
+                                            }
+                                            onClick={() =>
+                                              openaiSpeech(
+                                                getMessageTextContent(message),
+                                              )
+                                            }
+                                          />
+                                        )}
 
                                       {/* 这条回复是否生成完成（取消勾选后出现「继续生成」） */}
                                       {message.role === "assistant" && (
@@ -2472,7 +2485,9 @@ function _Chat() {
                               session={session}
                               message={message}
                               onRegenerate={
-                                isUser || !showActions
+                                isUser ||
+                                message.role === "system" ||
+                                !showActions
                                   ? undefined
                                   : () => onRetry(message)
                               }
@@ -2493,11 +2508,15 @@ function _Chat() {
             </div>
             {!hitBottom && (
               <div className={styles["chat-scroll-to-bottom"]}>
-                <ChatAction
+                <button
+                  type="button"
+                  className={styles["chat-scroll-to-bottom-button"]}
+                  aria-label={Locale.Chat.InputActions.ToBottom}
+                  title={Locale.Chat.InputActions.ToBottom}
                   onClick={scrollToBottom}
-                  text={Locale.Chat.InputActions.ToBottom}
-                  icon={<BottomIcon />}
-                />
+                >
+                  <BottomIcon />
+                </button>
               </div>
             )}
             <div className={styles["chat-input-panel"]}>
@@ -2575,15 +2594,30 @@ function _Chat() {
                     })}
                   </div>
                 )}
-                <button
-                  type="button"
-                  className={styles["chat-input-send"]}
-                  aria-label={Locale.Chat.Send}
-                  title={Locale.Chat.Send}
-                  onClick={() => doSubmit(userInput)}
-                >
-                  <SendWhiteIcon />
-                </button>
+                {isGenerating ? (
+                  <button
+                    type="button"
+                    className={clsx(
+                      styles["chat-input-send"],
+                      styles["chat-input-send-stop"],
+                    )}
+                    aria-label={Locale.Chat.Actions.Stop}
+                    title={Locale.Chat.Actions.Stop}
+                    onClick={onStopAll}
+                  >
+                    <StopIcon />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles["chat-input-send"]}
+                    aria-label={Locale.Chat.Send}
+                    title={Locale.Chat.Send}
+                    onClick={() => doSubmit(userInput)}
+                  >
+                    <SendWhiteIcon />
+                  </button>
+                )}
               </label>
             </div>
           </div>

@@ -123,39 +123,47 @@
   display: flex;
   justify-content: flex-end;
   pointer-events: none;
+}
 
-  .chat-input-action {
-    pointer-events: auto;
-    /* .chat-input-action 默认带 slide-in 动画，它的 keyframes 会覆盖下面的
-       transform，导致按钮先出现在输入面板上、动画结束才跳回正确位置。
-       这里换成只改透明度的淡入。 */
-    animation: fade-in ease 0.2s;
+/* 独立的圆形按钮（不再复用 ChatAction 的胶囊样式，
+   否则 hover 会把 width 撑成 --full-width，变成椭圆、图标也偏） */
+.chat-scroll-to-bottom-button {
+  pointer-events: auto;
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  margin-right: 24px;
+  border: var(--border-in-light);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--white);
+  color: var(--black);
+  box-shadow: var(--card-shadow);
+  cursor: pointer;
+  /* 只淡入，不做位移（位移由下面的 transform 负责） */
+  animation: fade-in ease 0.2s;
+  transform: translateY(calc(-100% - 20px));
+  transition:
+    background-color 0.15s ease,
+    transform 0.15s ease;
+  /* 图标始终居中 */
+  line-height: 0;
 
-    /* 圆形按钮：比默认胶囊大一圈，移动端更好点 */
-    width: 44px;
-    height: 44px;
-    padding: 0;
-    border-radius: 50%;
-    justify-content: center;
+  svg {
+    display: block;
+    width: 18px;
+    height: 18px;
+  }
 
-    .text {
-      display: none;
-    }
+  &:hover {
+    background-color: var(--hover-color);
+  }
 
-    .icon,
-    svg {
-      width: 20px;
-      height: 20px;
-    }
-
-    /* 覆盖悬停展开成胶囊的行为，始终是圆的 */
-    &:hover {
-      width: 44px;
-    }
-
-    /* 从 0 高度的定位点向上浮起，离右下角留一点距离 */
-    transform: translateY(calc(-100% - 24px));
-    margin-right: 24px;
+  &:active {
+    transform: translateY(calc(-100% - 20px)) scale(0.92);
   }
 }
 
@@ -938,6 +946,20 @@
 
   &:active {
     transform: scale(0.9);
+  }
+}
+
+/* 生成中：同一个圆球变成「停止」 */
+.chat-input-send-stop {
+  background-color: var(--white);
+  color: var(--black);
+  border: var(--border-in-light);
+
+  svg {
+    width: 14px;
+    height: 14px;
+    /* pause.svg 用的是 currentColor，这里保持描边可见 */
+    stroke: currentColor;
   }
 }
 
