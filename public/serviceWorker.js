@@ -37,15 +37,44 @@ self.addEventListener("fetch", function (event) {
   }
 });
 
+/**
+ * 把一段 HTML 里引用的 /_next/static 资源抓进缓存。
+ * 部署换了版本后，旧 HTML 引用的 chunk 会被服务器删掉，
+ * 提前把这些文件留在本地就不会出现 “ChunkLoadError”。
+ */
+async function warmAssets(html) {
+  const assets = Array.from(
+    html.matchAll(/(?:src|href)="(\/_next\/static\/[^"]+)"/g),
+  ).map((match) => match[1]);
+  if (assets.length === 0) return;
+
+  const cache = await caches.open(APP_STATIC_CACHE);
+  await Promise.all(
+    assets.map(async (url) => {
+      try {
+        if (await cache.match(url)) return;
+        const response = await fetch(url);
+        if (response && response.ok) await cache.put(url, response.clone());
+      } catch (e) {
+        // 单个资源失败不影响整体
+      }
+    }),
+  );
+}
+
 async function staleWhileRevalidate(request, cacheName) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
 
   // 后台更新：不管有没有命中缓存，都去服务器要一份新的
   const networkPromise = fetch(request)
-    .then((response) => {
+    .then(async (response) => {
       if (response && response.ok) {
-        cache.put(request, response.clone());
+        await cache.put(request, response.clone());
+        // 顺手把新版本引用的静态资源也抓下来
+        try {
+          warmAssets(await response.clone().text());
+        } catch (e) {}
       }
       return response;
     })
@@ -122,21 +151,7 @@ self.addEventListener("install", function (event) {
         await shell.put("/", response);
 
         // 首页里引用的 JS / CSS 一起抓下来，避免首次启动还要等网络
-        const assets = Array.from(
-          html.matchAll(/(?:src|href)="(\/_next\/static\/[^"]+)"/g),
-        ).map((match) => match[1]);
-
-        const staticCache = await caches.open(APP_STATIC_CACHE);
-        await Promise.all(
-          assets.map(async (url) => {
-            try {
-              const asset = await fetch(url);
-              if (asset && asset.ok) await staticCache.put(url, asset.clone());
-            } catch (e) {
-              // 单个资源失败不影响整体
-            }
-          }),
-        );
+        await warmAssets(html);
       } catch (e) {
         // 离线安装之类的场景，忽略即可，首次打开时还会再缓存
       }

@@ -86,6 +86,7 @@ import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
 import {
   getChatScrollState,
   getStreamingScrollTarget,
+  isScrollContentShort,
 } from "@/app/utils/chat-scroll";
 
 import dynamic from "next/dynamic";
@@ -1723,6 +1724,21 @@ function _Chat() {
     // 把锚定的那条消息挪回原来的位置
     dom.scrollTop += current - anchor.offset;
   }, [msgRenderIndex]);
+
+  // 装不满一屏时主动往前补历史：这种内容高度下滚动条没有可滚动空间，
+  // scroll 事件不会触发，“滚到顶部加载更多”永远等不到
+  useLayoutEffect(() => {
+    const dom = scrollRef.current;
+    if (!dom) return;
+
+    const canLoadPrev = msgRenderIndex - chatPageSize >= 0;
+    if (!canLoadPrev) return;
+    if (!isScrollContentShort(dom)) return;
+
+    captureScrollAnchor(dom, "top");
+    setMsgRenderIndex(msgRenderIndex - chatPageSize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [msgRenderIndex, chatPageSize]);
 
   const onChatBodyScroll = (e: HTMLElement) => {
     const prevPageMsgIndex = msgRenderIndex - chatPageSize;

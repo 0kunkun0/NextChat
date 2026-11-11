@@ -30,6 +30,21 @@ export function getChatScrollState(params: {
 }
 
 /**
+ * 渲染内容装不满一屏（短消息、低占用模式）。
+ *
+ * 这种情况下滚动条没有可滚动的空间，`scroll` 事件根本不会触发，
+ * 光靠“滚到顶部再加载”永远补不进更早的历史，必须主动检查。
+ */
+export function isScrollContentShort(params: {
+  clientHeight: number;
+  scrollHeight: number;
+  threshold?: number;
+}) {
+  const threshold = params.threshold ?? CHAT_EDGE_THRESHOLD;
+  return params.scrollHeight <= params.clientHeight + threshold;
+}
+
+/**
  * 流式输出时的滚动目标。
  *
  * 跟着新内容往下滚，但上限是“正在生成的那条消息”顶部贴住容器顶部：

@@ -2,6 +2,7 @@ import {
   CHAT_EDGE_THRESHOLD,
   getChatScrollState,
   getStreamingScrollTarget,
+  isScrollContentShort,
 } from "../app/utils/chat-scroll";
 
 const base = { clientHeight: 800, isMobile: false, hasMoreBelow: false };
@@ -116,5 +117,26 @@ describe("getStreamingScrollTarget", () => {
     });
     expect(result.bottom).toBe(0);
     expect(result.target).toBe(0);
+  });
+});
+
+describe("isScrollContentShort", () => {
+  test("detects content shorter than the viewport", () => {
+    expect(isScrollContentShort({ clientHeight: 800, scrollHeight: 700 })).toBe(
+      true,
+    );
+  });
+
+  test("counts content that barely overflows as short", () => {
+    // 只比视口高一点点时滚动条几乎没有行程，滚不到“顶部”触发加载
+    expect(isScrollContentShort({ clientHeight: 800, scrollHeight: 900 })).toBe(
+      true,
+    );
+  });
+
+  test("tall content is not short", () => {
+    expect(
+      isScrollContentShort({ clientHeight: 800, scrollHeight: 2000 }),
+    ).toBe(false);
   });
 });
