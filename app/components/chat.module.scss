@@ -152,10 +152,33 @@
   /* 图标始终居中 */
   line-height: 0;
 
+  /* ↓↓↓ 图标微调：觉得偏左上就加大这两个值（正数=往右/往下） */
+  --bottom-icon-nudge-x: 1px;
+  --bottom-icon-nudge-y: 1px;
+
   svg {
     display: block;
     width: 18px;
     height: 18px;
+    /* 视觉居中微调，只用 transform，不影响布局 */
+    transform: translate(
+      var(--bottom-icon-nudge-x),
+      var(--bottom-icon-nudge-y)
+    );
+    /* 图标用 currentColor（原来 SVG 里写死 stroke:#333，
+       在近乎纯黑的背景上几乎看不见） */
+    path {
+      stroke: currentColor;
+      stroke-width: 1.8;
+    }
+  }
+
+  /* 深色主题：按钮比背景亮一档、图标用浅灰，
+     对比度拉到约 13:1，iOS「降低白点」下也看得清 */
+  :global(.dark) & {
+    background-color: rgb(28, 28, 28);
+    color: rgb(235, 235, 235);
+    border-color: rgba(255, 255, 255, 0.28);
   }
 
   &:hover {
