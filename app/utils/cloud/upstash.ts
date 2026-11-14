@@ -301,6 +301,9 @@ export function createUpstashClient(
   /** 直连 / 走代理的请求数；排查“是不是每次都在撞直连超时” */
   let directCount = 0;
   let proxyCount = 0;
+  /** 实际要上传的原始 JSON 长度 / 压缩后长度，用来算压缩比 */
+  let rawCharsToUpload = 0;
+  let payloadCharsToUpload = 0;
 
   /** 用户取消后，在下一个项目/批次开始前抛错 */
   const throwIfAborted = () => {
@@ -807,6 +810,10 @@ export function createUpstashClient(
         }
 
         const { payload, gz } = await encodePayload(json, compress);
+        // 统计“真正要上传的字节”，用来看压缩比和上行速度
+        rawCharsToUpload += json.length;
+        payloadCharsToUpload += payload.length;
+
         const item: RemoteItem = {
           id,
           // 先假设不切片；走 big 的项在写完后会用 writeValue 的返回值覆盖
@@ -921,6 +928,16 @@ export function createUpstashClient(
           directRequests: directCount,
           proxyRequests: proxyCount,
           writtenChars: bytesOut,
+          // 原始 JSON / 压缩后 payload：看压缩比
+          rawChars: rawCharsToUpload,
+          payloadChars: payloadCharsToUpload,
+          ratio: Number(
+            (rawCharsToUpload / Math.max(1, payloadCharsToUpload)).toFixed(2),
+          ),
+          // 写入阶段的有效上行速度（KB/s），慢不慢一眼就能看出来
+          uploadKBps: Math.round(
+            bytesOut / 1024 / Math.max(0.001, writeMs / 1000),
+          ),
           indexBytes: indexBytes.length,
           compress,
           nativeCompress: hasNativeCompression(),
