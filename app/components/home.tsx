@@ -253,9 +253,10 @@ export function Home() {
   // 恢复上次打开过的调试日志开关（尽早装钩子，后面的日志才抓得到）
   useDebugLogStore.getState().init();
 
-  // React 已经接管界面：把 layout 里那层纯 CSS 启动动画摘掉
+  // React 已经接管界面：给 <html> 打个标记，由 CSS 隐藏启动动画。
+  // 注意不要直接 remove 那个节点——它是 React 渲染的，手动删会破坏 DOM 引用。
   useEffect(() => {
-    document.getElementById("boot-splash")?.remove();
+    document.documentElement.classList.add("app-ready");
   }, []);
 
   useEffect(() => {

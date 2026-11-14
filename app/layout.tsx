@@ -59,12 +59,21 @@ export default function RootLayout({
               "@media (prefers-color-scheme:dark){html,body{background-color:#151515}}" +
               // 静态启动动画：不依赖 JS，HTML 一画出来就有东西看
               "#boot-splash{position:fixed;inset:0;z-index:99999;display:flex;" +
-              "align-items:center;justify-content:center;background-color:#fafafa}" +
+              "align-items:center;justify-content:center;background-color:#fafafa;" +
+              "transition:opacity .2s ease}" +
               "@media (prefers-color-scheme:dark){#boot-splash{background-color:#151515}}" +
               "#boot-splash i{width:28px;height:28px;border-radius:50%;" +
               "border:3px solid rgba(128,128,128,.25);border-top-color:#1d93ab;" +
               "animation:boot-spin .8s linear infinite}" +
-              "@keyframes boot-spin{to{transform:rotate(360deg)}}",
+              "@keyframes boot-spin{to{transform:rotate(360deg)}}" +
+              // React 挂载后给 <html> 加 .app-ready，用 CSS 把它藏起来。
+              // 千万不要用 JS 把这个节点 remove 掉：它是 React 渲染的，
+              // 手动删会破坏 React 的 DOM 引用，随后 commit 阶段就会抛
+              // "insertBefore / removeChild: node is not a child of this node"
+              "html.app-ready #boot-splash{display:none}" +
+              // 万一 JS 彻底没跑起来（离线 / 老浏览器），10 秒后也让它自己淡出
+              "#boot-splash{animation:boot-bail .3s ease 10s forwards}" +
+              "@keyframes boot-bail{to{opacity:0;visibility:hidden}}",
           }}
         />
       </head>
@@ -73,19 +82,12 @@ export default function RootLayout({
         {/*
           React 挂载前先盖一层纯 CSS 的启动动画：
           老设备上 JS 解析 / 水合要一两秒，这段时间至少不是白屏。
-          Home 挂载后会把 #boot-splash 移除；下面的超时是兜底，
-          万一水合失败也不会永远卡在转圈上。
+          注意：这个节点由 React 渲染并管理，只能通过 CSS 隐藏（html.app-ready），
+          不能在外部 remove，否则会破坏 React 的 DOM 树导致整页崩溃。
         */}
         <div id="boot-splash" aria-hidden="true">
           <i />
         </div>
-        <script
-          dangerouslySetInnerHTML={{
-            __html:
-              "setTimeout(function(){var e=document.getElementById('boot-splash');" +
-              "if(e)e.remove()},12000)",
-          }}
-        />
         {serverConfig?.isVercel && (
           <>
             <SpeedInsights />
