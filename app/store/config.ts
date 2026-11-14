@@ -60,6 +60,10 @@ export const DEFAULT_CONFIG = {
   dontShowMaskSplashScreen: false, // dont show splash screen when create chat
   hideBuiltinMasks: false, // dont add builtin masks
 
+  // 界面元素开关
+  showChatSubTitle: true, // 顶部「共 x 条消息」
+  showRefreshTitleButton: true, // 顶部「刷新标题」按钮
+
   customModels: "",
   models: DEFAULT_MODELS as any as LLMModel[],
 

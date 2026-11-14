@@ -1938,6 +1938,40 @@ export function Settings() {
           </ListItem>
 
           <ListItem
+            title={Locale.Settings.ChatHeader.ShowSubTitle.Title}
+            subTitle={Locale.Settings.ChatHeader.ShowSubTitle.SubTitle}
+          >
+            <input
+              aria-label={Locale.Settings.ChatHeader.ShowSubTitle.Title}
+              type="checkbox"
+              checked={config.showChatSubTitle !== false}
+              onChange={(e) =>
+                updateConfig(
+                  (config) =>
+                    (config.showChatSubTitle = e.currentTarget.checked),
+                )
+              }
+            ></input>
+          </ListItem>
+
+          <ListItem
+            title={Locale.Settings.ChatHeader.ShowRefreshTitle.Title}
+            subTitle={Locale.Settings.ChatHeader.ShowRefreshTitle.SubTitle}
+          >
+            <input
+              aria-label={Locale.Settings.ChatHeader.ShowRefreshTitle.Title}
+              type="checkbox"
+              checked={config.showRefreshTitleButton !== false}
+              onChange={(e) =>
+                updateConfig(
+                  (config) =>
+                    (config.showRefreshTitleButton = e.currentTarget.checked),
+                )
+              }
+            ></input>
+          </ListItem>
+
+          <ListItem
             title={Locale.Mask.Config.Artifacts.Title}
             subTitle={Locale.Mask.Config.Artifacts.SubTitle}
           >

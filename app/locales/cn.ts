@@ -249,6 +249,16 @@ const cn = {
       Title: "预览气泡",
       SubTitle: "在预览气泡中预览 Markdown 内容",
     },
+    ChatHeader: {
+      ShowSubTitle: {
+        Title: "显示消息条数",
+        SubTitle: "对话顶部显示「共 N 条消息」",
+      },
+      ShowRefreshTitle: {
+        Title: "显示刷新标题按钮",
+        SubTitle: "对话顶部显示重新生成标题的按钮",
+      },
+    },
     AutoGenerateTitle: {
       Title: "自动生成标题",
       SubTitle: "根据对话内容生成合适的标题",

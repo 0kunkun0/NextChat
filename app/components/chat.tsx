@@ -653,12 +653,37 @@ function usePreventOverscroll(ref: RefObject<HTMLDivElement>) {
     }
 
     let startY = 0;
+    /** 手指从一个可横向滚动的容器里开始：那种手势交给它自己处理 */
+    let insideScrollable = false;
+
+    const isInsideScrollable = (target: EventTarget | null) => {
+      let el = target as HTMLElement | null;
+      while (el && el !== dom && el instanceof HTMLElement) {
+        const style = getComputedStyle(el);
+        const scrollableX =
+          (style.overflowX === "auto" || style.overflowX === "scroll") &&
+          el.scrollWidth > el.clientWidth + 1;
+        const scrollableY =
+          (style.overflowY === "auto" || style.overflowY === "scroll") &&
+          el.scrollHeight > el.clientHeight + 1;
+
+        // 横向列表（代码块 / 表格 / 图片条）要优先响应横滑，
+        // 否则生成过程中（列表停在底部）这些容器会完全滑不动
+        if (scrollableX || scrollableY) return true;
+        el = el.parentElement;
+      }
+      return false;
+    };
 
     const onTouchStart = (e: TouchEvent) => {
       startY = e.touches[0]?.clientY ?? 0;
+      insideScrollable = isInsideScrollable(e.target);
     };
 
     const onTouchMove = (e: TouchEvent) => {
+      // 手势起点在内层可滚动容器里：让它自己滚，别拦住
+      if (insideScrollable) return;
+
       const y = e.touches[0]?.clientY ?? 0;
       const delta = y - startY;
       const atTop = dom.scrollTop <= 0;
@@ -1671,6 +1696,20 @@ function _Chat() {
     return renderMessages.slice(msgRenderIndex, endRenderIndex);
   }, [msgRenderIndex, renderMessages]);
 
+  /**
+   * 唯一一条还能“重新生成”的消息：
+   * 末尾是 assistant → 就是它；末尾是还没回复的 user → 就是那条 user。
+   * 更早的消息属于历史，只保留复制 / 查看原始内容 / 编辑。
+   */
+  const regeneratableId = useMemo(() => {
+    const list = session.messages;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const role = list[i].role;
+      if (role === "assistant" || role === "user") return list[i].id;
+    }
+    return undefined;
+  }, [session.messages]);
+
   // 分页窗口变化时用来“固定”视口：记录一条消息及其位置，渲染完后把滚动条
   // 挪回去，避免往上下补内容时整个画面跳走
   const scrollAnchorRef = useRef<{
@@ -2094,21 +2133,24 @@ function _Chat() {
               {!session.topic ? DEFAULT_TOPIC : session.topic}
             </div>
             <div className="window-header-sub-title">
-              {Locale.Chat.SubTitle(session.messages.length)}
+              {config.showChatSubTitle !== false &&
+                Locale.Chat.SubTitle(session.messages.length)}
             </div>
           </div>
           <div className="window-actions">
-            <div className="window-action-button">
-              <IconButton
-                icon={<ReloadIcon />}
-                bordered
-                title={Locale.Chat.Actions.RefreshTitle}
-                onClick={() => {
-                  showToast(Locale.Chat.Actions.RefreshToast);
-                  chatStore.summarizeSession(true, session);
-                }}
-              />
-            </div>
+            {config.showRefreshTitleButton !== false && (
+              <div className="window-action-button">
+                <IconButton
+                  icon={<ReloadIcon />}
+                  bordered
+                  title={Locale.Chat.Actions.RefreshTitle}
+                  onClick={() => {
+                    showToast(Locale.Chat.Actions.RefreshToast);
+                    chatStore.summarizeSession(true, session);
+                  }}
+                />
+              </div>
+            )}
             {!isMobileScreen && (
               <div className="window-action-button">
                 <IconButton
@@ -2273,16 +2315,18 @@ function _Chat() {
                                     />
                                   ) : (
                                     <>
-                                      {message.role !== "system" && (
-                                        <ChatAction
-                                          text={Locale.Chat.Actions.Retry}
-                                          icon={<ResetIcon />}
-                                          onClick={() => onRetry(message)}
-                                        />
-                                      )}
+                                      {message.role !== "system" &&
+                                        message.id === regeneratableId && (
+                                          <ChatAction
+                                            text={Locale.Chat.Actions.Retry}
+                                            icon={<ResetIcon />}
+                                            onClick={() => onRetry(message)}
+                                          />
+                                        )}
 
                                       {/* 只有“未完成”的回复才显示继续生成（前缀补全） */}
                                       {message.role === "assistant" &&
+                                        message.id === regeneratableId &&
                                         message.isComplete === false && (
                                           <ChatAction
                                             text={
@@ -2294,15 +2338,16 @@ function _Chat() {
                                           />
                                         )}
 
-                                      {message.role !== "system" && (
-                                        <ChatAction
-                                          text={Locale.Chat.Actions.Delete}
-                                          icon={<DeleteIcon />}
-                                          onClick={() =>
-                                            onDelete(message.id ?? i)
-                                          }
-                                        />
-                                      )}
+                                      {message.role !== "system" &&
+                                        message.id === regeneratableId && (
+                                          <ChatAction
+                                            text={Locale.Chat.Actions.Delete}
+                                            icon={<DeleteIcon />}
+                                            onClick={() =>
+                                              onDelete(message.id ?? i)
+                                            }
+                                          />
+                                        )}
 
                                       <ChatAction
                                         text={Locale.Chat.Actions.Copy}
@@ -2323,7 +2368,8 @@ function _Chat() {
                                         />
                                       )}
                                       {config.ttsConfig.enable &&
-                                        message.role !== "system" && (
+                                        message.role !== "system" &&
+                                        message.id === regeneratableId && (
                                           <ChatAction
                                             text={
                                               speechStatus
@@ -2346,52 +2392,53 @@ function _Chat() {
                                         )}
 
                                       {/* 这条回复是否生成完成（取消勾选后出现「继续生成」） */}
-                                      {message.role === "assistant" && (
-                                        <label
-                                          className={
-                                            styles["chat-message-complete"]
-                                          }
-                                          title={
-                                            Locale.Chat.EditMessage.Complete
-                                              .Hint
-                                          }
-                                        >
-                                          <input
-                                            type="checkbox"
-                                            aria-label={
+                                      {message.role === "assistant" &&
+                                        message.id === regeneratableId && (
+                                          <label
+                                            className={
+                                              styles["chat-message-complete"]
+                                            }
+                                            title={
                                               Locale.Chat.EditMessage.Complete
-                                                .Label
+                                                .Hint
                                             }
-                                            checked={
-                                              message.isComplete !== false
-                                            }
-                                            onChange={(e) => {
-                                              const checked =
-                                                e.currentTarget.checked;
-                                              chatStore.updateTargetSession(
-                                                session,
-                                                (session) => {
-                                                  const m =
-                                                    session.messages.find(
-                                                      (m) =>
-                                                        m.id === message.id,
-                                                    );
-                                                  if (!m) return;
-                                                  m.isComplete = checked;
-                                                  session.messages =
-                                                    session.messages.concat();
-                                                },
-                                              );
-                                            }}
-                                          />
-                                          <span>
-                                            {
-                                              Locale.Chat.EditMessage.Complete
-                                                .Short
-                                            }
-                                          </span>
-                                        </label>
-                                      )}
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              aria-label={
+                                                Locale.Chat.EditMessage.Complete
+                                                  .Label
+                                              }
+                                              checked={
+                                                message.isComplete !== false
+                                              }
+                                              onChange={(e) => {
+                                                const checked =
+                                                  e.currentTarget.checked;
+                                                chatStore.updateTargetSession(
+                                                  session,
+                                                  (session) => {
+                                                    const m =
+                                                      session.messages.find(
+                                                        (m) =>
+                                                          m.id === message.id,
+                                                      );
+                                                    if (!m) return;
+                                                    m.isComplete = checked;
+                                                    session.messages =
+                                                      session.messages.concat();
+                                                  },
+                                                );
+                                              }}
+                                            />
+                                            <span>
+                                              {
+                                                Locale.Chat.EditMessage.Complete
+                                                  .Short
+                                              }
+                                            </span>
+                                          </label>
+                                        )}
                                     </>
                                   )}
                                 </div>
@@ -2487,6 +2534,7 @@ function _Chat() {
                               onRegenerate={
                                 isUser ||
                                 message.role === "system" ||
+                                message.id !== regeneratableId ||
                                 !showActions
                                   ? undefined
                                   : () => onRetry(message)

@@ -252,6 +252,16 @@ const en: LocaleType = {
       Title: "Send Preview Bubble",
       SubTitle: "Preview markdown in bubble",
     },
+    ChatHeader: {
+      ShowSubTitle: {
+        Title: "Show message count",
+        SubTitle: 'Show "N messages" under the chat title',
+      },
+      ShowRefreshTitle: {
+        Title: "Show refresh title button",
+        SubTitle: "Show the regenerate-title button in the chat header",
+      },
+    },
     AutoGenerateTitle: {
       Title: "Auto Generate Title",
       SubTitle: "Generate a suitable title based on the conversation content",
