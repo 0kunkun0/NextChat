@@ -248,6 +248,66 @@ export function uninstallConsoleHook() {
   });
 }
 
+/* ------------------------------------------------------------------ */
+/* 未捕获异常 / 未处理的 Promise 拒绝                                    */
+/* ------------------------------------------------------------------ */
+
+let errorHookInstalled = false;
+
+function onWindowError(event: ErrorEvent) {
+  try {
+    const where = event.filename
+      ? ` @ ${event.filename}:${event.lineno}:${event.colno}`
+      : "";
+    record("error", [
+      `[uncaught] ${event.message}${where}`,
+      event.error instanceof Error ? event.error : "",
+    ]);
+  } catch {
+    // 记录失败不能影响浏览器默认的错误上报
+  }
+}
+
+function onUnhandledRejection(event: PromiseRejectionEvent) {
+  try {
+    const reason = event.reason;
+    record("error", [
+      "[unhandled rejection]",
+      reason instanceof Error ? reason : String(reason),
+    ]);
+  } catch {
+    // 同上
+  }
+}
+
+/**
+ * 抓“没人接住的异常”和“没 catch 的 Promise”。
+ *
+ * 浏览器不会因为这两个事件终止页面，但如果没有日志，用户看到的就是
+ * “写一半突然炸了、又没有任何线索”。这里只是把它们记进本地日志，
+ * 不调用 preventDefault，浏览器的默认行为（控制台报错）保持不变。
+ */
+export function installErrorHook() {
+  if (errorHookInstalled || typeof window === "undefined") return;
+  errorHookInstalled = true;
+
+  window.addEventListener("error", onWindowError);
+  window.addEventListener("unhandledrejection", onUnhandledRejection);
+}
+
+export function uninstallErrorHook() {
+  if (!errorHookInstalled) return;
+  errorHookInstalled = false;
+
+  window.removeEventListener("error", onWindowError);
+  window.removeEventListener("unhandledrejection", onUnhandledRejection);
+}
+
+/** 还没落盘的内存日志（查看器用来显示最后几百毫秒的内容） */
+export function getPendingLogs() {
+  return buffer.slice();
+}
+
 /** 读取最近的日志（新的在前），懒加载：只读需要的那几个块 */
 export async function loadLogs(limit = 200) {
   const store = getLogStore();
@@ -330,13 +390,18 @@ export const useDebugLogStore = create<DebugLogState>((set, get) => ({
     set({ enabled });
     if (enabled) {
       installConsoleHook();
+      installErrorHook();
     } else {
       uninstallConsoleHook();
+      uninstallErrorHook();
     }
   },
 
   init() {
     installFlushOnHide();
-    if (get().enabled) installConsoleHook();
+    if (get().enabled) {
+      installConsoleHook();
+      installErrorHook();
+    }
   },
 }));

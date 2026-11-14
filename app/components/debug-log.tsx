@@ -12,6 +12,7 @@ import {
   DebugLogEntry,
   clearLogs,
   getLogStats,
+  getPendingLogs,
   loadLogs,
 } from "../store/debug-log";
 
@@ -57,7 +58,9 @@ export function DebugLogModal(props: { onClose: () => void }) {
         loadLogs(limit),
         getLogStats(),
       ]);
-      setEntries(entries);
+      // 还没落盘的内存日志（最近几百毫秒）也要显示，否则刚出的错误看不到
+      const pending = getPendingLogs().reverse();
+      setEntries([...pending, ...entries].slice(0, limit));
       setStats(nextStats);
     } finally {
       setLoading(false);

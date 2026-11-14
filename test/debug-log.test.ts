@@ -1,6 +1,9 @@
 import {
+  getPendingLogs,
   installConsoleHook,
+  installErrorHook,
   uninstallConsoleHook,
+  uninstallErrorHook,
   useDebugLogStore,
 } from "../app/store/debug-log";
 
@@ -13,6 +16,7 @@ describe("debug log console hook", () => {
 
   afterEach(() => {
     uninstallConsoleHook();
+    uninstallErrorHook();
     console.log = original.log;
     console.warn = original.warn;
     console.error = original.error;
@@ -69,5 +73,56 @@ describe("debug log console hook", () => {
     useDebugLogStore.getState().setEnabled(false);
     expect(useDebugLogStore.getState().enabled).toBe(false);
     expect(console.log).toBe(base);
+  });
+});
+
+describe("uncaught error capture", () => {
+  test("records window error events", () => {
+    installErrorHook();
+    const before = getPendingLogs().length;
+
+    const error = new Error("boom");
+    window.dispatchEvent(
+      new ErrorEvent("error", {
+        message: "boom",
+        error,
+        filename: "app.js",
+        lineno: 12,
+        colno: 3,
+      }),
+    );
+
+    const pending = getPendingLogs();
+    expect(pending.length).toBe(before + 1);
+    const last = pending[pending.length - 1];
+    expect(last.level).toBe("error");
+    expect(last.text).toContain("[uncaught]");
+    expect(last.text).toContain("boom");
+    expect(last.text).toContain("app.js:12:3");
+  });
+
+  test("records unhandled promise rejections", () => {
+    installErrorHook();
+    const before = getPendingLogs().length;
+
+    // jsdom 没有 PromiseRejectionEvent 构造函数，手工造一个同类事件
+    const event = new Event("unhandledrejection") as any;
+    event.reason = new Error("nobody caught me");
+    window.dispatchEvent(event);
+
+    const pending = getPendingLogs();
+    expect(pending.length).toBe(before + 1);
+    const last = pending[pending.length - 1];
+    expect(last.level).toBe("error");
+    expect(last.text).toContain("[unhandled rejection]");
+    expect(last.text).toContain("nobody caught me");
+  });
+
+  test("does not double-install listeners", () => {
+    installErrorHook();
+    installErrorHook();
+    const before = getPendingLogs().length;
+    window.dispatchEvent(new ErrorEvent("error", { message: "once" }));
+    expect(getPendingLogs().length).toBe(before + 1);
   });
 });
