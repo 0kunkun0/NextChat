@@ -186,6 +186,42 @@ describe("upstash incremental upload", () => {
     expect(server.writes).toEqual([]);
   });
 
+  test("forceFull re-uploads everything even when nothing changed", async () => {
+    const server = installFakeUpstash();
+    await client.upload(makeState());
+
+    server.writes.length = 0;
+    const stats = await client.upload(makeState(), undefined, {
+      forceFull: true,
+    });
+
+    // 6 项全部重写 + 索引
+    expect(stats.uploaded).toBe(6);
+    expect(stats.skipped).toBe(0);
+    expect(server.writes).toContain("backup-v2-index");
+  });
+
+  test("forceFull download re-fetches sessions that are unchanged", async () => {
+    const server = installFakeUpstash();
+    const state = makeState();
+    await client.upload(state);
+
+    server.gets.length = 0;
+    const skipped = await client.download(state);
+    expect(skipped).toBeTruthy();
+    // 增量下载：内容一致，不读会话本体
+    expect(
+      server.gets.filter((k) => k.startsWith("backup-v2-s-")),
+    ).toHaveLength(0);
+
+    server.gets.length = 0;
+    const full = await client.download(state, undefined, { forceFull: true });
+    expect(full).toBeTruthy();
+    expect(
+      server.gets.filter((k) => k.startsWith("backup-v2-s-")).length,
+    ).toBeGreaterThan(0);
+  });
+
   test("re-uploads everything when the remote data was wiped", async () => {
     const server = installFakeUpstash();
     await client.upload(makeState());

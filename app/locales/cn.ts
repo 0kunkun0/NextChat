@@ -300,6 +300,13 @@ const cn = {
       Never: "从未",
       LastUploadDownload: (uploadAt: string, downloadAt: string) =>
         `[上传] ${uploadAt}；[下载] ${downloadAt}`,
+      ForceFull: {
+        Title: "全量同步",
+        SubTitle:
+          "忽略哈希比对，把全部数据重新传一遍（修复云端或本地数据异常时使用）",
+        Upload: "全量上传",
+        Download: "全量下载",
+      },
 
       Config: {
         Modal: {

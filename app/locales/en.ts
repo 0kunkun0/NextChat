@@ -303,6 +303,13 @@ const en: LocaleType = {
       Never: "Never",
       LastUploadDownload: (uploadAt: string, downloadAt: string) =>
         `[Upload] ${uploadAt}; [Download] ${downloadAt}`,
+      ForceFull: {
+        Title: "Full sync",
+        SubTitle:
+          "Ignore content hashes and re-sync everything (use when cloud or local data looks broken)",
+        Upload: "Full upload",
+        Download: "Full download",
+      },
 
       Config: {
         Modal: {

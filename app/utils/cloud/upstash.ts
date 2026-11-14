@@ -685,6 +685,7 @@ export function createUpstashClient(
     async upload(
       state: any,
       onProgress?: (done: number, total: number) => void,
+      options?: { forceFull?: boolean },
     ): Promise<{ uploaded: number; skipped: number; total: number }> {
       const startedAt = Date.now();
       const chat = state[StoreKey.Chat] ?? {};
@@ -780,8 +781,9 @@ export function createUpstashClient(
         remoteIndex?.compress !== undefined &&
         remoteIndex.compress !== compress;
       const needsRepair = remoteIndex != null && (remoteIndex.v ?? 0) < 3;
-      /** 允许“内容没变就跳过”的前提：远端格式是可信的 */
-      const canSkipUnchanged = !reencodeAll && !needsRepair;
+      /** 允许“内容没变就跳过”的前提：远端格式是可信的，且没有强制全量 */
+      const canSkipUnchanged =
+        !options?.forceFull && !reencodeAll && !needsRepair;
 
       const sessionItems: RemoteItem[] = [];
       const storeItems: RemoteItem[] = [];
@@ -960,8 +962,10 @@ export function createUpstashClient(
     async download(
       localState?: any,
       onProgress?: (done: number, total: number) => void,
+      options?: { forceFull?: boolean },
     ) {
       const startedAt = Date.now();
+      const forceFull = options?.forceFull === true;
 
       // 索引请求先发出去，等它的时候顺带把本地哈希算完
       // （取消时同样不能留下未处理的 rejection，见 upload 里的说明）
@@ -1015,7 +1019,7 @@ export function createUpstashClient(
 
           for (const item of remoteSessions) {
             const local = localHashes.get(item.id);
-            if (item.h && local && local.hash === item.h) {
+            if (!forceFull && item.h && local && local.hash === item.h) {
               sessionsById.set(item.id, local.item);
               skipped += 1;
             } else {
@@ -1104,6 +1108,7 @@ export function createUpstashClient(
           // stores 一般都小，能合批就合批
           const stores: Record<string, any> = {};
           const storeToFetch = remoteStores.filter((item) => {
+            if (forceFull) return true;
             const local = localState?.[item.id];
             if (!item.h || !local) return true;
             return hashString(JSON.stringify(local)) !== item.h;

@@ -606,9 +606,13 @@ function SyncItems() {
         : label
       : null;
 
+  // 进度是两种任务共用的状态：只有当前任务类型才显示在对应按钮上，
+  // 否则下载的时候上传按钮也会跟着跳
   const uploadText =
-    progressLabel(Locale.Settings.Sync.Uploading) ??
-    Locale.Settings.Sync.Upload;
+    syncJob?.type === "upload"
+      ? progressLabel(Locale.Settings.Sync.Uploading) ??
+        Locale.Settings.Sync.Uploading
+      : Locale.Settings.Sync.Upload;
 
   const downloadText =
     syncJob?.type === "download"
@@ -648,6 +652,83 @@ function SyncItems() {
     };
   }, [chatStore.sessions, maskStore.masks, promptStore.prompts]);
 
+  /**
+   * 上传 / 下载的共同实现。
+   * forceFull = true 时忽略哈希比对，把全部数据重新传一遍（用于修复云端或本地脏数据）。
+   */
+  const runUpload = async (forceFull = false) => {
+    const controller = new AbortController();
+    setSyncJob({ type: "upload", controller });
+    try {
+      const client = createUpstashClient(syncStore, {
+        signal: controller.signal,
+      });
+      const local = getLocalAppState();
+      setSyncProgress(null);
+      showToast(Locale.Settings.Sync.Uploading);
+      // 先让「上传中」这一帧渲染出来，再去做 JSON 序列化 / 分片这类重活
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const stats = await client.upload(
+        local,
+        (done, total) => setSyncProgress({ done, total }),
+        { forceFull },
+      );
+      syncStore.markUploadTime();
+      if (stats.total === 0) {
+        showToast(Locale.Settings.Sync.NothingChanged);
+      } else if (stats.skipped > 0) {
+        showToast(Locale.Settings.Sync.UploadSuccessSkipped(stats.skipped));
+      } else {
+        showToast(Locale.Settings.Sync.UploadSuccess);
+      }
+    } catch (e) {
+      if (isAbortError(e)) {
+        showToast(Locale.Settings.Sync.Canceled);
+      } else {
+        showToast(Locale.Settings.Sync.UploadFailed);
+        console.error("[Upload]", e);
+      }
+    } finally {
+      setSyncProgress(null);
+      setSyncJob(null);
+    }
+  };
+
+  const runDownload = async (forceFull = false) => {
+    const controller = new AbortController();
+    setSyncJob({ type: "download", controller });
+    try {
+      setSyncProgress(null);
+      showToast(Locale.Settings.Sync.Downloading);
+      const client = createUpstashClient(syncStore, {
+        signal: controller.signal,
+      });
+      // 把本地状态传进去：和远端哈希一致的项目直接跳过，不再下载
+      const remote = await client.download(
+        getLocalAppState(),
+        (done, total) => setSyncProgress({ done, total }),
+        { forceFull },
+      );
+      if (!remote) {
+        showToast(Locale.Settings.Sync.NoRemoteData);
+        return;
+      }
+      // 只有完整下载成功才会覆盖本地数据
+      setLocalAppState(remote);
+      syncStore.markDownloadTime();
+      showToast(Locale.Settings.Sync.DownloadSuccess);
+    } catch (e) {
+      if (isAbortError(e)) {
+        showToast(Locale.Settings.Sync.Canceled);
+      } else {
+        showToast(Locale.Settings.Sync.DownloadFailed);
+        console.error("[Download]", e);
+      }
+    } finally {
+      setSyncJob(null);
+    }
+  };
+
   return (
     <>
       <List>
@@ -670,83 +751,13 @@ function SyncItems() {
                   icon={<UploadIcon />}
                   text={uploadText}
                   disabled={syncJob !== null}
-                  onClick={async () => {
-                    const controller = new AbortController();
-                    setSyncJob({ type: "upload", controller });
-                    try {
-                      const client = createUpstashClient(syncStore, {
-                        signal: controller.signal,
-                      });
-                      const local = getLocalAppState();
-                      setSyncProgress(null);
-                      showToast(Locale.Settings.Sync.Uploading);
-                      // 先让「上传中」这一帧渲染出来，再去做 JSON 序列化 / 分片这类重活
-                      await new Promise((resolve) => setTimeout(resolve, 0));
-                      const stats = await client.upload(local, (done, total) =>
-                        setSyncProgress({ done, total }),
-                      );
-                      syncStore.markUploadTime();
-                      if (stats.total === 0) {
-                        showToast(Locale.Settings.Sync.NothingChanged);
-                      } else if (stats.skipped > 0) {
-                        showToast(
-                          Locale.Settings.Sync.UploadSuccessSkipped(
-                            stats.skipped,
-                          ),
-                        );
-                      } else {
-                        showToast(Locale.Settings.Sync.UploadSuccess);
-                      }
-                    } catch (e) {
-                      if (isAbortError(e)) {
-                        showToast(Locale.Settings.Sync.Canceled);
-                      } else {
-                        showToast(Locale.Settings.Sync.UploadFailed);
-                        console.error("[Upload]", e);
-                      }
-                    } finally {
-                      setSyncProgress(null);
-                      setSyncJob(null);
-                    }
-                  }}
+                  onClick={() => void runUpload()}
                 />
                 <IconButton
                   icon={<DownloadIcon />}
                   text={downloadText}
                   disabled={syncJob !== null}
-                  onClick={async () => {
-                    const controller = new AbortController();
-                    setSyncJob({ type: "download", controller });
-                    try {
-                      setSyncProgress(null);
-                      showToast(Locale.Settings.Sync.Downloading);
-                      const client = createUpstashClient(syncStore, {
-                        signal: controller.signal,
-                      });
-                      // 把本地状态传进去：和远端哈希一致的项目直接跳过，不再下载
-                      const remote = await client.download(
-                        getLocalAppState(),
-                        (done, total) => setSyncProgress({ done, total }),
-                      );
-                      if (!remote) {
-                        showToast(Locale.Settings.Sync.NoRemoteData);
-                        return;
-                      }
-                      // 只有完整下载成功才会覆盖本地数据
-                      setLocalAppState(remote);
-                      syncStore.markDownloadTime();
-                      showToast(Locale.Settings.Sync.DownloadSuccess);
-                    } catch (e) {
-                      if (isAbortError(e)) {
-                        showToast(Locale.Settings.Sync.Canceled);
-                      } else {
-                        showToast(Locale.Settings.Sync.DownloadFailed);
-                        console.error("[Download]", e);
-                      }
-                    } finally {
-                      setSyncJob(null);
-                    }
-                  }}
+                  onClick={() => void runDownload()}
                 />
                 {syncJob && (
                   <IconButton
@@ -759,6 +770,28 @@ function SyncItems() {
             )}
           </div>
         </ListItem>
+
+        {couldSync && (
+          <ListItem
+            title={Locale.Settings.Sync.ForceFull.Title}
+            subTitle={Locale.Settings.Sync.ForceFull.SubTitle}
+          >
+            <div style={{ display: "flex" }}>
+              <IconButton
+                icon={<UploadIcon />}
+                text={Locale.Settings.Sync.ForceFull.Upload}
+                disabled={syncJob !== null}
+                onClick={() => void runUpload(true)}
+              />
+              <IconButton
+                icon={<DownloadIcon />}
+                text={Locale.Settings.Sync.ForceFull.Download}
+                disabled={syncJob !== null}
+                onClick={() => void runDownload(true)}
+              />
+            </div>
+          </ListItem>
+        )}
 
         <ListItem
           title={Locale.Settings.Sync.LocalState}
