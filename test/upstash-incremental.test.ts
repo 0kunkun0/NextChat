@@ -336,6 +336,36 @@ describe("upstash incremental upload", () => {
     }
   });
 
+  test("clearRemote wipes every key under the store prefix", async () => {
+    // 关掉压缩，保证会话会被切片
+    const savedCompression = (globalThis as any).CompressionStream;
+    const savedDecompression = (globalThis as any).DecompressionStream;
+    delete (globalThis as any).CompressionStream;
+    delete (globalThis as any).DecompressionStream;
+
+    try {
+      const server = installFakeUpstash();
+      await client.upload(makeState("word ".repeat(500_000)));
+      expect(server.kv.has("backup-v2-s-s1-c0")).toBe(true);
+
+      const removed = await client.clearRemote();
+      expect(removed).toBeGreaterThan(0);
+
+      // 索引、会话单 key、分片、分片计数都应该被删掉
+      expect(server.kv.has("backup-v2-index")).toBe(false);
+      expect(server.kv.has("backup-v2-s-s1")).toBe(false);
+      expect(server.kv.has("backup-v2-s-s1-c0")).toBe(false);
+      expect(server.kv.has("backup-v2-s-s1-n")).toBe(false);
+
+      // 清空后再下载应该读不到任何东西
+      const restored = await client.download();
+      expect(restored).toBeNull();
+    } finally {
+      (globalThis as any).CompressionStream = savedCompression;
+      (globalThis as any).DecompressionStream = savedDecompression;
+    }
+  });
+
   test("chunked is decided by bytes, not by character count", async () => {
     // 中文 1 字符≈3 字节：40 万字符 ≈ 1.2MB，字符数没超 1e6 但字节数超了
     const cjk = "中文内容".repeat(100_000);

@@ -1253,5 +1253,101 @@ export function createUpstashClient(
         return null;
       }
     },
+
+    /**
+     * 清空当前用户名（UPSTASH_USERNAME / storeKey）下的全部云端数据。
+     *
+     * 只删 `<storeKey>-` 前缀的 key，不碰同一个库里别人的备份。
+     * 先按索引逐个 key / 分片删，再尽量用 SCAN 扫一遍前缀，
+     * 把索引里没记录的孤儿分片一起清掉。
+     */
+    async clearRemote(): Promise<number> {
+      const keys = new Set<string>();
+
+      // 1. 按索引收集：索引本身 + 每个会话/配置的 key 与分片
+      const indexRaw = await this.redisGet(indexKey).catch(() => null);
+      if (indexRaw) {
+        try {
+          const index = JSON.parse(indexRaw) as RemoteIndex;
+          const collect = async (
+            items: RemoteItem[],
+            keyOf: (id: string) => string,
+          ) => {
+            for (const item of items) {
+              const key = keyOf(item.id);
+              keys.add(key);
+              if (item.chunked) {
+                const count = Number(await this.redisGet(`${key}-n`)) || 0;
+                for (let i = 0; i < count; i++) keys.add(`${key}-c${i}`);
+                keys.add(`${key}-n`);
+              }
+            }
+          };
+          await collect(index.sessions ?? [], sessionKey);
+          await collect(index.stores ?? [], storeItemKey);
+        } catch (e) {
+          console.warn("[Upstash] failed to parse index while clearing", e);
+        }
+      }
+
+      keys.add(indexKey);
+
+      // 2. 老格式（整包分片）
+      const legacyCount = Number(await this.redisGet(legacyCountKey)) || 0;
+      for (let i = 0; i < legacyCount; i++) keys.add(legacyChunkKey(i));
+      keys.add(legacyCountKey);
+
+      // 3. 兜底：扫一遍前缀，把索引里没有的孤儿 key 也删掉
+      try {
+        for (const key of await this.scanKeys(`${storeKey}-`)) keys.add(key);
+      } catch (e) {
+        console.warn("[Upstash] failed to scan keys while clearing", e);
+      }
+
+      // 4. 分批 DEL
+      const list = Array.from(keys);
+      const CLEAR_BATCH = 40;
+      for (let i = 0; i < list.length; i += CLEAR_BATCH) {
+        throwIfAborted();
+        const batch = list.slice(i, i + CLEAR_BATCH);
+        await this.pipeline(batch.map((key) => ["DEL", key]));
+      }
+
+      console.log("[Upstash] cleared remote keys:", list.length);
+      return list.length;
+    },
+
+    /** 用 SCAN 按前缀列出 key（Upstash REST 支持 /scan/<cursor>/match/<pattern>） */
+    async scanKeys(prefix: string): Promise<string[]> {
+      const found: string[] = [];
+      let cursor = "0";
+
+      for (let page = 0; page < 50; page++) {
+        const path = `scan/${cursor}/match/${encodeURIComponent(
+          prefix,
+        )}*/count/500`;
+        const res = await this.request({
+          path,
+          action: "scan",
+          key: `${cursor}/match/${encodeURIComponent(prefix)}*/count/500`,
+          method: "GET",
+          headers: this.headers(),
+          signal,
+        });
+        if (!res.ok) break;
+
+        const body = await res.json().catch(() => null);
+        // Upstash 返回 [nextCursor, [key1, key2, ...]]
+        if (!Array.isArray(body)) break;
+        const [next, batch] = body as [string | number, string[]];
+        if (Array.isArray(batch)) {
+          found.push(...batch.map(String));
+        }
+        if (next === undefined || next === null || String(next) === "0") break;
+        cursor = String(next);
+      }
+
+      return found;
+    },
   };
 }

@@ -29,6 +29,7 @@ import {
   Popover,
   Select,
   showConfirm,
+  showPrompt,
   showToast,
 } from "./ui-lib";
 import { ModelConfigList } from "./model-config";
@@ -729,6 +730,30 @@ function SyncItems() {
     }
   };
 
+  /** 清空当前用户名下的云端备份（成功返回 true，调用方随后会全量上传） */
+  const runClearRemote = async () => {
+    const controller = new AbortController();
+    setSyncJob({ type: "upload", controller });
+    try {
+      const client = createUpstashClient(syncStore, {
+        signal: controller.signal,
+      });
+      const removed = await client.clearRemote();
+      showToast(Locale.Settings.Sync.ForceFull.ClearDone(removed));
+      return true;
+    } catch (e) {
+      if (isAbortError(e)) {
+        showToast(Locale.Settings.Sync.Canceled);
+      } else {
+        showToast(Locale.Settings.Sync.ForceFull.ClearFailed);
+        console.error("[Clear]", e);
+      }
+      return false;
+    } finally {
+      setSyncJob(null);
+    }
+  };
+
   return (
     <>
       <List>
@@ -807,6 +832,52 @@ function SyncItems() {
                   );
                   // 清理完立刻全量上传一次，让云端重新分块 / 计算哈希
                   await runUpload(true);
+                }}
+              />
+              <IconButton
+                icon={<ClearIcon />}
+                text={Locale.Settings.Sync.ForceFull.Clear}
+                disabled={syncJob !== null}
+                onClick={async () => {
+                  // 1. 输入访问密码
+                  const code = await showPrompt(
+                    Locale.Settings.Sync.ForceFull.ClearPrompt,
+                    "",
+                    1,
+                  );
+                  if (code === null) return;
+
+                  // 2. 交给服务端校验（只认访问密码，本地比较没有意义）
+                  const headers: Record<string, string> = {
+                    "Content-Type": "application/json",
+                  };
+                  headers.Authorization = `Bearer ${ACCESS_CODE_PREFIX}${code.trim()}`;
+                  let verified = false;
+                  try {
+                    const res = await fetch("/api/sync/upstash", {
+                      method: "POST",
+                      headers,
+                    });
+                    verified = res.ok;
+                  } catch (e) {
+                    console.error("[Clear] verify failed", e);
+                  }
+                  if (!verified) {
+                    showToast(Locale.Settings.Sync.ForceFull.ClearWrongCode);
+                    return;
+                  }
+
+                  // 3. 二次确认后清空 + 全量上传
+                  if (
+                    !(await showConfirm(
+                      Locale.Settings.Sync.ForceFull.ClearConfirm,
+                    ))
+                  ) {
+                    return;
+                  }
+                  if (await runClearRemote()) {
+                    await runUpload(true);
+                  }
                 }}
               />
             </div>

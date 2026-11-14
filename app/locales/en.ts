@@ -314,6 +314,14 @@ const en: LocaleType = {
           "This removes duplicated session ids and duplicate reply variants (no message content or titles are deleted), then runs a full upload. Continue?",
         RepairDone: (variants: number, ids: number) =>
           `Repaired: removed ${variants} duplicate variant(s) and ${ids} duplicate session id(s)`,
+        Clear: "Clear cloud",
+        ClearPrompt:
+          "Enter the access code to confirm wiping the cloud backup under the current backup name",
+        ClearWrongCode: "Wrong access code, canceled",
+        ClearConfirm:
+          "ALL cloud keys under the current backup name will be DELETED, then a full upload runs. Local data is untouched. Continue?",
+        ClearDone: (count: number) => `Cleared ${count} cloud key(s)`,
+        ClearFailed: "Failed to clear cloud data",
       },
 
       Config: {
