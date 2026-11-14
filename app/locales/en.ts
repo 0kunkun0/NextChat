@@ -311,7 +311,7 @@ const en: LocaleType = {
         Download: "Full download",
         Repair: "Repair local data",
         RepairConfirm:
-          "This removes duplicated session ids and duplicate reply variants (no message content or titles are deleted), then runs a full upload. Continue?",
+          "This removes duplicated session ids and duplicate reply variants (no message content or titles are deleted). Please run a full upload manually afterwards. Continue?",
         RepairDone: (variants: number, ids: number) =>
           `Repaired: removed ${variants} duplicate variant(s) and ${ids} duplicate session id(s)`,
         Clear: "Clear cloud",
@@ -319,7 +319,7 @@ const en: LocaleType = {
           "Enter the access code to confirm wiping the cloud backup under the current backup name",
         ClearWrongCode: "Wrong access code, canceled",
         ClearConfirm:
-          "ALL cloud keys under the current backup name will be DELETED, then a full upload runs. Local data is untouched. Continue?",
+          "ALL cloud keys under the current backup name will be DELETED. Local data is untouched; nothing is uploaded automatically. Continue?",
         ClearDone: (count: number) => `Cleared ${count} cloud key(s)`,
         ClearFailed: "Failed to clear cloud data",
       },
@@ -353,6 +353,11 @@ const en: LocaleType = {
         Compression: {
           Title: "Compress uploads",
           SubTitle: "gzip before uploading to save bandwidth",
+        },
+        ChunkSize: {
+          Title: (size: number) => `Chunk size: ${size} KB`,
+          SubTitle:
+            "Sessions larger than this are uploaded in chunks (16KB ~ 1024KB, upload only; downloads always reassemble from the index)",
         },
 
         UpStash: {

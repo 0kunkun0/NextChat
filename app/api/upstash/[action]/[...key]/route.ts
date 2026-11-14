@@ -25,7 +25,9 @@ async function handle(
   }
 
   // 只放开 upstash 的 get / set / pipeline（pipeline 用于批量读写）
-  const allowedActions = ["get", "set", "pipeline"];
+  // 只放开 upstash 的 get / set / pipeline（pipeline 用于批量读写）；
+  // scan / keys / del 供「清空云端」和清理孤儿分片使用
+  const allowedActions = ["get", "set", "pipeline", "scan", "keys", "del"];
   if (!allowedActions.includes(params.action)) {
     console.log("[Upstash Route] forbidden action ", params.action);
     return NextResponse.json(

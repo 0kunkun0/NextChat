@@ -308,14 +308,14 @@ const cn = {
         Download: "全量下载",
         Repair: "修复本地数据",
         RepairConfirm:
-          "将清理重复的会话 id 与重复的候选回复（不会删除任何对话内容和标题），随后自动执行一次全量上传。继续吗？",
+          "将清理重复的会话 id 与重复的候选回复（不会删除任何对话内容和标题）。清理后请手动点「全量上传」。继续吗？",
         RepairDone: (variants: number, ids: number) =>
           `已修复：去掉 ${variants} 条重复候选、${ids} 个重复会话 id`,
         Clear: "清空云端",
         ClearPrompt: "输入访问密码以确认清空当前备份名下的云端备份",
         ClearWrongCode: "访问密码不正确，已取消",
         ClearConfirm:
-          "将删除当前备份名前缀下的全部云端 key，随后自动全量上传一次。本地数据不受影响。确定继续吗？",
+          "将删除当前备份名前缀下的全部云端 key。本地数据不受影响，清空后不会自动上传。确定继续吗？",
         ClearDone: (count: number) => `已清空 ${count} 个云端 key`,
         ClearFailed: "清空云端数据失败",
       },
@@ -348,6 +348,11 @@ const cn = {
         Compression: {
           Title: "压缩上传",
           SubTitle: "gzip 压缩后上传，可明显减少流量",
+        },
+        ChunkSize: {
+          Title: (size: number) => `分块大小：${size} KB`,
+          SubTitle:
+            "单个会话超过这个大小就切片上传（16KB ~ 1024KB，仅影响上传；下载按索引自动拼接）",
         },
 
         UpStash: {

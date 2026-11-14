@@ -12,8 +12,11 @@ export type UpStashClient = ReturnType<typeof createUpstashClient>;
  * 适度并发（不要太高，否则弱网下反而更慢）能把总耗时压到接近单次往返。
  */
 const UPLOAD_CONCURRENCY = 6;
-/** 单个 value 超过这个字节数才切片 */
+/** 单个 value 超过这个字节数才切片（默认值；实际可在设置里调） */
 const CHUNK_BYTES = 1000 * 1000;
+/** 分片大小可选范围（KB）：16KB ~ Upstash 单条记录上限 1MB */
+const MIN_CHUNK_KB = 16;
+const MAX_CHUNK_KB = 1024;
 /**
  * 单个 pipeline 请求里最多塞多少字符。
  * Upstash 单请求上限约 1MB，按 UTF-8 最坏 3 字节/字符算，25 万字符仍在上限内。
@@ -295,6 +298,13 @@ export function createUpstashClient(
   /** 取消上传/下载用的信号：读请求立刻中断，写请求做完当前项再停 */
   const signal = options?.signal;
 
+  /** 上传时的分片大小（字节）：设置里可调，范围 16KB ~ 1024KB */
+  const chunkSizeKB = Math.min(
+    MAX_CHUNK_KB,
+    Math.max(MIN_CHUNK_KB, Number(config.chunkSizeKB) || MAX_CHUNK_KB),
+  );
+  const chunkBytes = chunkSizeKB * 1024;
+
   /** 本次同步发出的 HTTP 请求数 / 上行字符数，用于排查“到底慢在哪” */
   let requestCount = 0;
   let bytesOut = 0;
@@ -304,6 +314,8 @@ export function createUpstashClient(
   /** 实际要上传的原始 JSON 长度 / 压缩后长度，用来算压缩比 */
   let rawCharsToUpload = 0;
   let payloadCharsToUpload = 0;
+  /** 这次写了多少个分片 key（-cN + -n），用来解释云端 key 总数 */
+  let chunkKeysWritten = 0;
 
   /** 用户取消后，在下一个项目/批次开始前抛错 */
   const throwIfAborted = () => {
@@ -645,7 +657,7 @@ export function createUpstashClient(
      * （缓存里的块数看着就像翻倍）。
      */
     async writeValue(key: string, value: string): Promise<boolean> {
-      const parts = Array.from(chunks(value, CHUNK_BYTES));
+      const parts = Array.from(chunks(value, chunkBytes));
 
       // 旧的分片数（没有就是 0 / NaN）
       const previousCount = Number(await this.redisGet(`${key}-n`)) || 0;
@@ -672,6 +684,7 @@ export function createUpstashClient(
         ),
       );
       await this.redisSet(`${key}-n`, String(parts.length));
+      chunkKeysWritten += parts.length + 1;
 
       // 新的分片比旧的少：把越界的旧分片删掉
       if (previousCount > parts.length) {
@@ -866,7 +879,9 @@ export function createUpstashClient(
         };
 
         const key = kind === "sessions" ? sessionKey(id) : storeItemKey(id);
-        if (payload.length > PIPELINE_MAX_CHARS) {
+        // 超过这个长度就单独处理（切片写）；分块大小调小时，阈值跟着变小，
+        // 这样用户设的“分块大小”才真的是单个请求的粒度
+        if (payload.length > Math.min(PIPELINE_MAX_CHARS, chunkBytes)) {
           big.push({ key, payload, item });
           // 原来是不分片的单 key，现在切成片了：旧的单 key 要清掉
           if (remote && !remote.chunked) stalePlainKeys.push(key);
@@ -998,6 +1013,16 @@ export function createUpstashClient(
             bytesOut / 1024 / Math.max(0.001, writeMs / 1000),
           ),
           indexBytes: indexBytes.length,
+          // 云端 key 的构成：1 个索引 + 未分片的项各 1 个 key + 分片项的分片 key
+          items: total,
+          sessions: sessions.length,
+          stores: storeNames.length,
+          chunkKeys: chunkKeysWritten,
+          chunkKB: chunkSizeKB,
+          expectedKeys:
+            1 +
+            (total - big.filter((b) => b.item.chunked).length) +
+            chunkKeysWritten,
           compress,
           nativeCompress: hasNativeCompression(),
           direct: preferDirect && !forceProxy,
@@ -1263,6 +1288,8 @@ export function createUpstashClient(
      */
     async clearRemote(): Promise<number> {
       const keys = new Set<string>();
+      /** 不带分片后缀的基础 key，用来做“暴力清扫” */
+      const baseKeys = new Set<string>();
 
       // 1. 按索引收集：索引本身 + 每个会话/配置的 key 与分片
       const indexRaw = await this.redisGet(indexKey).catch(() => null);
@@ -1276,6 +1303,7 @@ export function createUpstashClient(
             for (const item of items) {
               const key = keyOf(item.id);
               keys.add(key);
+              baseKeys.add(key);
               if (item.chunked) {
                 const count = Number(await this.redisGet(`${key}-n`)) || 0;
                 for (let i = 0; i < count; i++) keys.add(`${key}-c${i}`);
@@ -1297,11 +1325,34 @@ export function createUpstashClient(
       for (let i = 0; i < legacyCount; i++) keys.add(legacyChunkKey(i));
       keys.add(legacyCountKey);
 
-      // 3. 兜底：扫一遍前缀，把索引里没有的孤儿 key 也删掉
+      // 3. 扫一遍前缀：索引里没记录的孤儿 key 也一起删
+      let scanned = 0;
+      const scannedKeys: string[] = [];
       try {
-        for (const key of await this.scanKeys(`${storeKey}-`)) keys.add(key);
+        for (const key of await this.scanKeys(`${storeKey}-`)) {
+          keys.add(key);
+          scannedKeys.push(key);
+          scanned += 1;
+        }
       } catch (e) {
         console.warn("[Upstash] failed to scan keys while clearing", e);
+      }
+      console.log(
+        "[Upstash] clear: index keys =",
+        keys.size,
+        "scanned =",
+        scanned,
+      );
+      if (scannedKeys.length) {
+        // 打印出来，方便和 Upstash 控制台核对到底有哪些 key
+        console.log("[Upstash] remote keys:", scannedKeys);
+      }
+
+      // 4. 兜底：即使拿不到 scan / keys，也把已知项可能的分片扫掉。
+      //    分片上限 64（单条 64MB 远超过实际使用），代价只是一些 DEL。
+      for (const base of baseKeys) {
+        keys.add(`${base}-n`);
+        for (let i = 0; i < 64; i++) keys.add(`${base}-c${i}`);
       }
 
       // 4. 分批 DEL
@@ -1317,9 +1368,35 @@ export function createUpstashClient(
       return list.length;
     },
 
-    /** 用 SCAN 按前缀列出 key（Upstash REST 支持 /scan/<cursor>/match/<pattern>） */
+    /** 按前缀列出 key：优先 KEYS（一次请求），失败再退回 SCAN */
     async scanKeys(prefix: string): Promise<string[]> {
       const found: string[] = [];
+      const pattern = `${encodeURIComponent(prefix)}*`;
+
+      // 1. KEYS —— 简单直接，管理型操作，数据量不大时完全够用
+      try {
+        const res = await this.request({
+          path: `keys/${pattern}`,
+          action: "keys",
+          key: pattern,
+          method: "GET",
+          headers: this.headers(),
+          signal,
+        });
+        if (res.ok) {
+          const body = await res.json().catch(() => null);
+          if (Array.isArray(body)) {
+            console.log("[Upstash] KEYS returned", body.length, "key(s)");
+            return body.map(String);
+          }
+        } else {
+          console.warn("[Upstash] KEYS not allowed:", res.status);
+        }
+      } catch (e) {
+        console.warn("[Upstash] KEYS failed, try SCAN", e);
+      }
+
+      // 2. SCAN 兜底
       let cursor = "0";
 
       for (let page = 0; page < 50; page++) {

@@ -17,7 +17,9 @@ if (typeof globalThis.DecompressionStream === "undefined") {
   (globalThis as any).DecompressionStream = DecompressionStream;
 }
 
-function makeSyncStore(options: { useCompression?: boolean } = {}) {
+function makeSyncStore(
+  options: { useCompression?: boolean; chunkSizeKB?: number } = {},
+) {
   return {
     provider: "upstash",
     useProxy: false,
@@ -27,6 +29,7 @@ function makeSyncStore(options: { useCompression?: boolean } = {}) {
       endpoint: "https://example.upstash.io",
       username: "backup",
       apiKey: "token",
+      chunkSizeKB: options.chunkSizeKB ?? 1024,
     },
   } as any;
 }
@@ -360,6 +363,36 @@ describe("upstash incremental upload", () => {
       // 清空后再下载应该读不到任何东西
       const restored = await client.download();
       expect(restored).toBeNull();
+    } finally {
+      (globalThis as any).CompressionStream = savedCompression;
+      (globalThis as any).DecompressionStream = savedDecompression;
+    }
+  });
+
+  test("chunk size setting controls how many chunks are written", async () => {
+    // 关掉压缩，保证体积可预测
+    const savedCompression = (globalThis as any).CompressionStream;
+    const savedDecompression = (globalThis as any).DecompressionStream;
+    delete (globalThis as any).CompressionStream;
+    delete (globalThis as any).DecompressionStream;
+
+    try {
+      const server = installFakeUpstash();
+      const smallChunks = createUpstashClient(
+        makeSyncStore({ chunkSizeKB: 16 }),
+      );
+      // 约 200KB，按 16KB 切片应该远多于 1 片
+      const big = "word ".repeat(40_000);
+      await smallChunks.upload(makeState(big));
+
+      const chunkKeys = Array.from(server.kv.keys()).filter((k) =>
+        k.startsWith("backup-v2-s-s1-c"),
+      );
+      expect(chunkKeys.length).toBeGreaterThan(2);
+
+      // 下载不依赖分片大小，照样能拼回原样
+      const restored = await smallChunks.download();
+      expect(restored[StoreKey.Chat].sessions[0].messages[0].content).toBe(big);
     } finally {
       (globalThis as any).CompressionStream = savedCompression;
       (globalThis as any).DecompressionStream = savedDecompression;

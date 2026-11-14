@@ -47,6 +47,14 @@ const DEFAULT_SYNC_STATE = {
     endpoint: "",
     username: STORAGE_KEY,
     apiKey: "",
+    /**
+     * 单个分片的大小（KB）。Upstash Redis 单条记录上限 1MB，
+     * 这里默认也是 1024（上限）。
+     * 调小 → 单个请求更小、失败重试代价更低，但请求数变多；
+     * 调大 → 请求数少，但单个请求更容易被弱网卡住。
+     * 只在「上传」时生效：下载始终按索引里记录的 -n 分片数读取。
+     */
+    chunkSizeKB: 1024,
   },
 
   lastSyncTime: 0,

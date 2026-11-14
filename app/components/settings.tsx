@@ -572,6 +572,26 @@ function SyncConfigModal(props: { onClose?: () => void }) {
                 }}
               ></input>
             </ListItem>
+            <ListItem
+              title={Locale.Settings.Sync.Config.ChunkSize.Title(
+                syncStore.upstash.chunkSizeKB ?? 1024,
+              )}
+              subTitle={Locale.Settings.Sync.Config.ChunkSize.SubTitle}
+            >
+              <input
+                type="range"
+                min={16}
+                max={1024}
+                step={16}
+                value={syncStore.upstash.chunkSizeKB ?? 1024}
+                onChange={(e) => {
+                  const value = Number(e.currentTarget.value) || 1024;
+                  syncStore.update(
+                    (config) => (config.upstash.chunkSizeKB = value),
+                  );
+                }}
+              ></input>
+            </ListItem>
           </List>
         )}
       </Modal>
@@ -830,8 +850,7 @@ function SyncItems() {
                       report.duplicateIds,
                     ),
                   );
-                  // 清理完立刻全量上传一次，让云端重新分块 / 计算哈希
-                  await runUpload(true);
+                  // 不自动上传：让用户先确认本地数据，再手动点「全量上传」
                 }}
               />
               <IconButton
@@ -867,7 +886,7 @@ function SyncItems() {
                     return;
                   }
 
-                  // 3. 二次确认后清空 + 全量上传
+                  // 3. 二次确认后清空（不自动上传，先在控制台确认清干净了）
                   if (
                     !(await showConfirm(
                       Locale.Settings.Sync.ForceFull.ClearConfirm,
@@ -875,9 +894,7 @@ function SyncItems() {
                   ) {
                     return;
                   }
-                  if (await runClearRemote()) {
-                    await runUpload(true);
-                  }
+                  await runClearRemote();
                 }}
               />
             </div>
