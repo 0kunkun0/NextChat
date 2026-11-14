@@ -253,6 +253,11 @@ export function Home() {
   // 恢复上次打开过的调试日志开关（尽早装钩子，后面的日志才抓得到）
   useDebugLogStore.getState().init();
 
+  // React 已经接管界面：把 layout 里那层纯 CSS 启动动画摘掉
+  useEffect(() => {
+    document.getElementById("boot-splash")?.remove();
+  }, []);
+
   useEffect(() => {
     console.log("[Config] got config from build time", getClientConfig());
     useAccessStore.getState().fetch();

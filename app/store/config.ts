@@ -38,6 +38,36 @@ export enum Theme {
 
 const config = getClientConfig();
 
+/**
+ * 「无边框 / 全屏」这个开关直接影响首屏布局。
+ *
+ * 配置本身存在 IndexedDB 里，读取是异步的：刷新页面时先按默认值渲染
+ * （非全屏），等水合完成才切到全屏，于是会闪一下。
+ * 这里额外在 localStorage 里存一份，创建 store 时同步读出来，
+ * 首帧就是正确的布局。
+ */
+const TIGHT_BORDER_KEY = "tight-border-mode";
+
+function readTightBorderSync(): boolean | undefined {
+  try {
+    if (typeof window === "undefined") return undefined;
+    const raw = window.localStorage.getItem(TIGHT_BORDER_KEY);
+    if (raw === null) return undefined;
+    return raw === "1";
+  } catch {
+    return undefined;
+  }
+}
+
+function writeTightBorderSync(value: boolean) {
+  try {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(TIGHT_BORDER_KEY, value ? "1" : "0");
+  } catch {
+    // 隐私模式写不进去也无所谓，只是省不了那一下闪烁
+  }
+}
+
 export const DEFAULT_CONFIG = {
   lastUpdate: Date.now(), // timestamp, to merge state
 
@@ -46,7 +76,8 @@ export const DEFAULT_CONFIG = {
   fontSize: 14,
   fontFamily: "",
   theme: Theme.Auto as Theme,
-  tightBorder: !!config?.isApp,
+  // 首帧就用 localStorage 里的值，避免刷新时“先非全屏、再跳成全屏”
+  tightBorder: readTightBorderSync() ?? !!config?.isApp,
   sendPreviewBubble: true,
   enableAutoGenerateTitle: true,
   sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
@@ -263,3 +294,14 @@ export const useAppConfig = createPersistStore(
     },
   },
 );
+
+// 把「无边框」开关同步镜像到 localStorage：
+// 下次刷新时首帧就能读到正确的值（IndexedDB 是异步的，来不及）
+let lastTightBorder: boolean | undefined;
+useAppConfig.subscribe((state) => {
+  if (state.tightBorder === lastTightBorder) return;
+  lastTightBorder = state.tightBorder;
+  writeTightBorderSync(!!state.tightBorder);
+});
+// 初始值也写一次，保证 localStorage 里始终有一份
+writeTightBorderSync(!!useAppConfig.getState().tightBorder);
