@@ -309,6 +309,11 @@ const en: LocaleType = {
           "Ignore content hashes and re-sync everything (use when cloud or local data looks broken)",
         Upload: "Full upload",
         Download: "Full download",
+        Repair: "Repair local data",
+        RepairConfirm:
+          "This removes duplicated session ids and duplicate reply variants (no message content or titles are deleted), then runs a full upload. Continue?",
+        RepairDone: (variants: number, ids: number) =>
+          `Repaired: removed ${variants} duplicate variant(s) and ${ids} duplicate session id(s)`,
       },
 
       Config: {

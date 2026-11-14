@@ -637,11 +637,24 @@ export function createUpstashClient(
       );
     },
 
-    /** 写一个 value：小内容单 key，大内容切片；返回是否切了片 */
+    /**
+     * 写一个 value：小内容单 key，大内容切片；返回是否切了片。
+     *
+     * 会顺手清理“上一次遗留的分片”：内容变短以后分片数会减少，
+     * 多出来的 `-cN` 如果不删，云端就会一直躺着一堆没人引用的旧分片
+     * （缓存里的块数看着就像翻倍）。
+     */
     async writeValue(key: string, value: string): Promise<boolean> {
       const parts = Array.from(chunks(value, CHUNK_BYTES));
+
+      // 旧的分片数（没有就是 0 / NaN）
+      const previousCount = Number(await this.redisGet(`${key}-n`)) || 0;
+
       if (parts.length <= 1) {
         await this.redisSet(key, value);
+        if (previousCount > 0) {
+          await this.dropChunks(key, 0, previousCount);
+        }
         return false;
       }
 
@@ -659,7 +672,30 @@ export function createUpstashClient(
         ),
       );
       await this.redisSet(`${key}-n`, String(parts.length));
+
+      // 新的分片比旧的少：把越界的旧分片删掉
+      if (previousCount > parts.length) {
+        await this.dropChunks(key, parts.length, previousCount);
+      }
       return true;
+    },
+
+    /** 删除 [from, to) 区间的旧分片（连同 -n），一次 pipeline 搞定 */
+    async dropChunks(key: string, from: number, to: number) {
+      const commands: string[][] = [];
+      for (let i = from; i < to; i++) {
+        commands.push(["DEL", `${key}-c${i}`]);
+      }
+      // from === 0 表示这条已经改回“不分片”，连 -n 一起删
+      if (from === 0) commands.push(["DEL", `${key}-n`]);
+      if (commands.length === 0) return;
+
+      try {
+        await this.pipeline(commands);
+      } catch (e) {
+        // 清理失败不影响数据正确性（读端以索引为准），忽略
+        console.warn("[Upstash] failed to clean stale chunks", key, e);
+      }
     },
 
     /** 读一个 value：单 key 或按索引里记录的分片数拼接 */
@@ -791,6 +827,10 @@ export function createUpstashClient(
       // 大项会走 writeValue，是否真的切片要以它实际写的结果为准
       // （中文 1 字符≈3 字节，按字符数判断会得出错误的 chunked）
       const big: Array<{ key: string; payload: string; item: RemoteItem }> = [];
+      /** 需要清理旧分片的 key（原来切片、现在不分片了） */
+      const staleChunkKeys: string[] = [];
+      /** 需要清理旧单 key 的 key（原来不分片、现在切片了） */
+      const stalePlainKeys: string[] = [];
 
       const plan = async (
         kind: "sessions" | "stores",
@@ -828,8 +868,12 @@ export function createUpstashClient(
         const key = kind === "sessions" ? sessionKey(id) : storeItemKey(id);
         if (payload.length > PIPELINE_MAX_CHARS) {
           big.push({ key, payload, item });
+          // 原来是不分片的单 key，现在切成片了：旧的单 key 要清掉
+          if (remote && !remote.chunked) stalePlainKeys.push(key);
         } else {
           small.push({ key, payload, gz });
+          // 原来切片、现在放得下了：旧分片要清掉（否则云端会一直留着）
+          if (remote?.chunked) staleChunkKeys.push(key);
         }
         return item;
       };
@@ -893,6 +937,19 @@ export function createUpstashClient(
           worker,
         ),
       );
+
+      // 2.5 清理格式切换后遗留的旧 key：
+      // 会话变短时旧分片不会自动消失，云端就会一直躺着多余的块
+      await runLimited(staleChunkKeys, UPLOAD_CONCURRENCY, async (key) => {
+        throwIfAborted();
+        const previous = Number(await this.redisGet(`${key}-n`)) || 0;
+        if (previous > 0) await this.dropChunks(key, 0, previous);
+      });
+      await runLimited(stalePlainKeys, UPLOAD_CONCURRENCY, async (key) => {
+        throwIfAborted();
+        await this.pipeline([["DEL", key]]).catch(() => {});
+      });
+
       const writeMs = Date.now() - writeStartedAt;
 
       // 3. 最后写索引：读端以索引为准，索引存在即代表数据齐全。

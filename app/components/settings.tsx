@@ -789,6 +789,26 @@ function SyncItems() {
                 disabled={syncJob !== null}
                 onClick={() => void runDownload(true)}
               />
+              <IconButton
+                icon={<ResetIcon />}
+                text={Locale.Settings.Sync.ForceFull.Repair}
+                disabled={syncJob !== null}
+                onClick={async () => {
+                  const ok = await showConfirm(
+                    Locale.Settings.Sync.ForceFull.RepairConfirm,
+                  );
+                  if (!ok) return;
+                  const report = chatStore.repairLocalSessions();
+                  showToast(
+                    Locale.Settings.Sync.ForceFull.RepairDone(
+                      report.duplicateVariants,
+                      report.duplicateIds,
+                    ),
+                  );
+                  // 清理完立刻全量上传一次，让云端重新分块 / 计算哈希
+                  await runUpload(true);
+                }}
+              />
             </div>
           </ListItem>
         )}

@@ -84,6 +84,10 @@ function installFakeUpstash(
           options.onWrite?.(command[1]);
           return { result: "OK" };
         }
+        if (command[0] === "DEL") {
+          const existed = kv.delete(command[1]);
+          return { result: existed ? 1 : 0 };
+        }
         gets.push(command[1]);
         return { result: kv.has(command[1]) ? kv.get(command[1])! : null };
       });
@@ -298,6 +302,34 @@ describe("upstash incremental upload", () => {
 
       const restored = await client.download();
       expect(restored[StoreKey.Chat].sessions[0].messages[0].content).toBe(big);
+    } finally {
+      (globalThis as any).CompressionStream = savedCompression;
+      (globalThis as any).DecompressionStream = savedDecompression;
+    }
+  });
+
+  test("stale chunks are deleted when the content shrinks", async () => {
+    // 关掉压缩，保证一定按 1MB 切片
+    const savedCompression = (globalThis as any).CompressionStream;
+    const savedDecompression = (globalThis as any).DecompressionStream;
+    delete (globalThis as any).CompressionStream;
+    delete (globalThis as any).DecompressionStream;
+
+    try {
+      const server = installFakeUpstash();
+      // 约 2.5MB → 3 片
+      await client.upload(makeState("word ".repeat(500_000)));
+      expect(server.kv.has("backup-v2-s-s1-c2")).toBe(true);
+
+      // 缩到约 1.25MB → 2 片，第 3 片应该被清掉
+      await client.upload(makeState("word ".repeat(250_000)));
+      expect(server.kv.has("backup-v2-s-s1-c1")).toBe(true);
+      expect(server.kv.has("backup-v2-s-s1-c2")).toBe(false);
+
+      // 再缩到不需要分片：所有分片和 -n 都应删除
+      await client.upload(makeState("tiny"));
+      expect(server.kv.has("backup-v2-s-s1-c0")).toBe(false);
+      expect(server.kv.has("backup-v2-s-s1-n")).toBe(false);
     } finally {
       (globalThis as any).CompressionStream = savedCompression;
       (globalThis as any).DecompressionStream = savedDecompression;

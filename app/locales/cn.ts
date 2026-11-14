@@ -306,6 +306,11 @@ const cn = {
           "忽略哈希比对，把全部数据重新传一遍（修复云端或本地数据异常时使用）",
         Upload: "全量上传",
         Download: "全量下载",
+        Repair: "修复本地数据",
+        RepairConfirm:
+          "将清理重复的会话 id 与重复的候选回复（不会删除任何对话内容和标题），随后自动执行一次全量上传。继续吗？",
+        RepairDone: (variants: number, ids: number) =>
+          `已修复：去掉 ${variants} 条重复候选、${ids} 个重复会话 id`,
       },
 
       Config: {

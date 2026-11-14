@@ -1341,6 +1341,100 @@ export const useChatStore = createPersistStore(
           set(() => ({ sessions: sessions.concat() }));
         }
       },
+
+      /**
+       * 修复本地会话数据（不删任何对话内容和标题）。
+       *
+       * 只清理“重复数据”：
+       * - 会话 id 重复 → 重新生成一个（重复 id 会让云端两个会话互相覆盖）；
+       * - 候选回复里完全相同的条目去重；
+       * - 只有一个候选且和正文完全一致时，把这个冗余副本删掉
+       *   （正是它让会话 JSON 体积翻倍、云端分块数也翻倍）。
+       *
+       * 清理后建议再做一次「全量上传」，让云端重新分块 / 计算哈希。
+       */
+      repairLocalSessions() {
+        const sessions = get().sessions;
+        const usedIds = new Set<string>();
+        let duplicateIds = 0;
+        let duplicateVariants = 0;
+        let totalMessages = 0;
+
+        const sameContent = (a: any, b: any) => {
+          if (a === b) return true;
+          try {
+            return JSON.stringify(a) === JSON.stringify(b);
+          } catch {
+            return false;
+          }
+        };
+
+        const repaired = sessions.map((session) => {
+          let id = session.id;
+          if (!id || usedIds.has(id)) {
+            id = nanoid();
+            duplicateIds += 1;
+          }
+          usedIds.add(id);
+
+          const messages = (
+            Array.isArray(session.messages) ? session.messages : []
+          ).map((raw) => {
+            const message = raw as ChatMessage;
+            if (!message.id) message.id = nanoid();
+
+            if (Array.isArray(message.variants) && message.variants.length) {
+              const seen = new Set<string>();
+              const unique = message.variants.filter((variant) => {
+                const key = `${JSON.stringify(variant.content)}|${
+                  variant.model
+                }|${variant.date}|${variant.isError}`;
+                if (seen.has(key)) {
+                  duplicateVariants += 1;
+                  return false;
+                }
+                seen.add(key);
+                return true;
+              });
+
+              const onlyOne =
+                unique.length === 1 &&
+                sameContent(unique[0].content, message.content) &&
+                unique[0].model === message.model;
+
+              if (onlyOne) {
+                // 正文和唯一候选一模一样：纯冗余，直接去掉
+                duplicateVariants += 1;
+                delete message.variants;
+                delete message.variantIndex;
+              } else {
+                message.variants = unique;
+                message.variantIndex = Math.min(
+                  Math.max(message.variantIndex ?? 0, 0),
+                  unique.length - 1,
+                );
+              }
+            }
+
+            totalMessages += 1;
+            return message;
+          });
+
+          return { ...session, id, messages };
+        });
+
+        set(() => ({ sessions: repaired }));
+
+        const report = {
+          sessions: repaired.length,
+          messages: totalMessages,
+          duplicateIds,
+          duplicateVariants,
+        };
+        console.log("[Chat] repaired local sessions", report);
+        return report;
+      },
+
       async clearAllData() {
         await indexedDBStorage.clear();
         localStorage.clear();
