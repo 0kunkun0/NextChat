@@ -11,7 +11,7 @@ export type UpStashClient = ReturnType<typeof createUpstashClient>;
  * 原来的实现是一片一片串行 await，跨洋链路上 N 片就是 N 个往返；
  * 适度并发（不要太高，否则弱网下反而更慢）能把总耗时压到接近单次往返。
  */
-const UPLOAD_CONCURRENCY = 4;
+const UPLOAD_CONCURRENCY = 6;
 /** 单个 value 超过这个字节数才切片 */
 const CHUNK_BYTES = 1000 * 1000;
 /**
@@ -253,10 +253,38 @@ export function isAbortError(error: any) {
 }
 
 /**
- * 直连失败过一次就记住（跨 client 实例），
- * 避免每次点同步都先撞一次跨域再回退。
+ * 直连失败过一次就记住（跨 client 实例、跨页面刷新），
+ * 避免每次点同步都先撞一次跨域/超时再回退。
  */
-let directUnavailable = false;
+const DIRECT_FLAG_KEY = "upstash-direct-unavailable";
+
+function readDirectUnavailable() {
+  try {
+    return window.localStorage.getItem(DIRECT_FLAG_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveDirectUnavailable() {
+  try {
+    window.localStorage.setItem(DIRECT_FLAG_KEY, "1");
+  } catch {
+    // 隐私模式写不进去，至少本次会话内有效
+  }
+}
+
+let directUnavailable =
+  typeof window === "undefined" ? false : readDirectUnavailable();
+
+/**
+ * 直连最多等这么久。
+ *
+ * 有些网络环境访问 *.upstash.io 会一直卡在 TLS/连接阶段（不是立刻报错），
+ * 不设超时的话第一次同步就得干等浏览器网络栈自己超时（好几秒甚至更久），
+ * 之后再退回代理。这里主动掐断，快速回退。
+ */
+const DIRECT_TIMEOUT_MS = 2500;
 
 export function createUpstashClient(
   store: SyncStore,
@@ -266,6 +294,13 @@ export function createUpstashClient(
   const storeKey = config.username.length === 0 ? STORAGE_KEY : config.username;
   /** 取消上传/下载用的信号：读请求立刻中断，写请求做完当前项再停 */
   const signal = options?.signal;
+
+  /** 本次同步发出的 HTTP 请求数 / 上行字符数，用于排查“到底慢在哪” */
+  let requestCount = 0;
+  let bytesOut = 0;
+  /** 直连 / 走代理的请求数；排查“是不是每次都在撞直连超时” */
+  let directCount = 0;
+  let proxyCount = 0;
 
   /** 用户取消后，在下一个项目/批次开始前抛错 */
   const throwIfAborted = () => {
@@ -374,19 +409,58 @@ export function createUpstashClient(
     }) {
       const { path, action, key, ...init } = options;
 
+      requestCount += 1;
+      if (typeof init.body === "string") bytesOut += init.body.length;
+
+      // 调用方已经取消了：直接抛，连请求都不发
+      if (init.signal?.aborted) {
+        const error = new Error("The operation was aborted.");
+        error.name = "AbortError";
+        throw error;
+      }
+
       if (!preferDirect || forceProxy || directUnavailable) {
+        proxyCount += 1;
         return fetch(this.path(path, proxyUrl), init as RequestInit);
       }
 
+      // 直连加超时：卡住的连接不要拖住整个同步
+      let timedOut = false;
+      const controller = new AbortController();
+      const timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, DIRECT_TIMEOUT_MS);
+      const onAbort = () => controller.abort();
+      init.signal?.addEventListener?.("abort", onAbort, { once: true });
+
       try {
-        return await fetch(this.directUrl(action, key), init as RequestInit);
+        const response = await fetch(this.directUrl(action, key), {
+          ...(init as RequestInit),
+          signal: controller.signal,
+        });
+        directCount += 1;
+        return response;
       } catch (e) {
-        if (isAbortError(e) || !isNetworkError(e)) throw e;
-        console.warn("[Upstash] direct request failed, fall back to proxy", e);
+        // 用户主动取消：原样抛出，不要当成“直连不可用”
+        if (!timedOut && init.signal?.aborted) throw e;
+        if (!timedOut && !isAbortError(e) && !isNetworkError(e)) throw e;
+
+        console.warn(
+          timedOut
+            ? "[Upstash] direct request timed out, fall back to proxy"
+            : "[Upstash] direct request failed, fall back to proxy",
+          e,
+        );
         forceProxy = true;
-        // 记住这次失败，别每次同步都再撞一次跨域
+        // 记住这次失败（含页面刷新），别每次冷启动都再撞一次
         directUnavailable = true;
+        saveDirectUnavailable();
+        proxyCount += 1;
         return fetch(this.path(path, proxyUrl), init as RequestInit);
+      } finally {
+        clearTimeout(timer);
+        init.signal?.removeEventListener?.("abort", onAbort);
       }
     },
 
@@ -625,26 +699,59 @@ export function createUpstashClient(
 
       // 先把索引请求发出去，等它回来的这段时间顺手把本地序列化 + 哈希算完：
       // 两件事本来都得做，串行做等于白等一个完整往返。
+      // 注意：取消时不能让这个 promise 变成“未处理的 rejection”——
+      // 下面序列化阶段有 await，期间没人接住就会被判成 unhandled。
+      let indexAbortError: unknown = null;
       const indexPromise = this.redisGet(indexKey).catch((e) => {
-        if (isAbortError(e)) throw e;
+        if (isAbortError(e)) {
+          indexAbortError = e;
+          return null;
+        }
         console.warn("[Upstash] failed to read index, upload everything", e);
         return null;
       });
 
+      const considered = sessions.length + storeNames.length;
+      // 一点按钮就把总条数报出去：用户立刻能看到 0/N 在动，
+      // 而不是先干等「读索引 + 序列化」好几秒。
+      onProgress?.(0, considered);
+
       const hashStartedAt = Date.now();
-      const localSessions = sessions.map((session) => {
+      let prepared = 0;
+      let lastYieldAt = Date.now();
+      /** 每 8ms 让出一次主线程，避免序列化大历史时整页卡死 */
+      const yieldIfNeeded = async () => {
+        if (Date.now() - lastYieldAt < 8) return;
+        lastYieldAt = Date.now();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      };
+
+      const localSessions: Array<{
+        session: any;
+        json: string;
+        hash: string;
+      }> = [];
+      for (const session of sessions) {
+        throwIfAborted();
         const json = JSON.stringify(session);
-        return { session, json, hash: hashString(json) };
-      });
+        localSessions.push({ session, json, hash: hashString(json) });
+        onProgress?.(++prepared, considered);
+        await yieldIfNeeded();
+      }
+
       const localStores = storeNames.map((name) => {
         const json = JSON.stringify(state[name] ?? {});
         return { name, json, hash: hashString(json) };
       });
+      prepared += localStores.length;
+      onProgress?.(prepared, considered);
       const hashMs = Date.now() - hashStartedAt;
 
       // - 云端没有索引（换了库 / 被清空）→ 全部重传；
       // - 有的话用它里面的哈希判断哪些项没变（比本机缓存可靠，多设备也不会错）。
       const rawIndex = await indexPromise;
+      // 取消的话在这里补上抛出，语义和原来一致
+      if (indexAbortError) throw indexAbortError;
       const indexMs = Date.now() - hashStartedAt - hashMs;
 
       let remoteIndex: RemoteIndex | null = null;
@@ -730,7 +837,6 @@ export function createUpstashClient(
       }
 
       const total = small.length + big.length;
-      const considered = sessions.length + storeNames.length;
       const chatHash = hashString(JSON.stringify(chatMeta));
       const chatChanged =
         hashString(JSON.stringify(remoteIndex?.chat ?? null)) !== chatHash;
@@ -740,6 +846,12 @@ export function createUpstashClient(
       }
 
       let done = 0;
+      // 扫描阶段占了 considered 个进度，写阶段接着往上加，进度条只增不减
+      const reportWrite = () =>
+        onProgress?.(considered + done, considered + total);
+
+      const writeStartedAt = Date.now();
+      const requestsBeforeWrite = requestCount;
 
       // 1. 小项按批 pipeline 写（并发跑，别一棒一棒等往返）
       const writeBatches = groupBatchesByEncoding(
@@ -750,7 +862,7 @@ export function createUpstashClient(
         throwIfAborted();
         await this.writeBatch(batch);
         done += batch.length;
-        onProgress?.(done, total);
+        reportWrite();
       });
 
       // 2. 大项（会切片）仍然逐项并发写
@@ -763,7 +875,7 @@ export function createUpstashClient(
           // 索引说“没切片”但实际写成了分片，读端就永远读不到最新内容
           entry.item.chunked = await this.writeValue(entry.key, entry.payload);
           done += 1;
-          onProgress?.(done, total);
+          reportWrite();
         }
       };
       await Promise.all(
@@ -772,11 +884,12 @@ export function createUpstashClient(
           worker,
         ),
       );
+      const writeMs = Date.now() - writeStartedAt;
 
       // 3. 最后写索引：读端以索引为准，索引存在即代表数据齐全。
       // 取消时不写索引 → 远端索引保持旧状态，下次上传会自己补上。
       throwIfAborted();
-      const dataMs = Date.now() - startedAt - hashMs - indexMs;
+      const encodeMs = writeStartedAt - startedAt - hashMs - indexMs;
       const index: RemoteIndex = {
         // 3：chunked 改为按实际写入结果记录（旧版本用字符数判断，会标错）
         v: 3,
@@ -787,17 +900,30 @@ export function createUpstashClient(
         compress,
       };
       const indexBytes = JSON.stringify(index);
+      const indexSetStartedAt = Date.now();
       await this.redisSet(indexKey, indexBytes);
+      const indexSetMs = Date.now() - indexSetStartedAt;
 
       console.log(
         `[Upstash] incremental upload: ${done}/${total} item(s) in ${
           Date.now() - startedAt
         }ms`,
         {
+          // 各阶段耗时：网络读 / 本地哈希 / 压缩编码 / 数据写入 / 索引写入
           indexReadMs: indexMs,
           localHashMs: hashMs,
-          dataMs,
+          encodeMs,
+          writeMs,
+          indexSetMs,
+          // 请求数与上行数据量：慢的时候先看这两个
+          requests: requestCount,
+          writeRequests: requestCount - requestsBeforeWrite,
+          directRequests: directCount,
+          proxyRequests: proxyCount,
+          writtenChars: bytesOut,
           indexBytes: indexBytes.length,
+          compress,
+          nativeCompress: hasNativeCompression(),
           direct: preferDirect && !forceProxy,
         },
       );
@@ -814,27 +940,50 @@ export function createUpstashClient(
      * - 小项合并成一次 pipeline GET，大项/分片项单独读；
      * - 支持 gzip 压缩过的内容。
      */
-    async download(localState?: any) {
+    async download(
+      localState?: any,
+      onProgress?: (done: number, total: number) => void,
+    ) {
       const startedAt = Date.now();
 
       // 索引请求先发出去，等它的时候顺带把本地哈希算完
+      // （取消时同样不能留下未处理的 rejection，见 upload 里的说明）
+      let indexAbortError: unknown = null;
       const indexPromise = this.redisGet(indexKey).catch((e) => {
-        if (isAbortError(e)) throw e;
+        if (isAbortError(e)) {
+          indexAbortError = e;
+          return null;
+        }
         return null;
       });
+
+      const localList: any[] = localState?.[StoreKey.Chat]?.sessions ?? [];
+      // 和上传一样：先把扫描进度显示出来，别让用户干等
+      onProgress?.(0, localList.length);
 
       const hashStartedAt = Date.now();
       // 本地会话的哈希，用来判断哪些完全没变
       const localHashes = new Map<string, { hash: string; item: any }>();
-      for (const session of localState?.[StoreKey.Chat]?.sessions ?? []) {
+      let scanned = 0;
+      let lastYieldAt = Date.now();
+      const yieldIfNeeded = async () => {
+        if (Date.now() - lastYieldAt < 8) return;
+        lastYieldAt = Date.now();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      };
+
+      for (const session of localList) {
         localHashes.set(session.id, {
           hash: hashString(JSON.stringify(session)),
           item: session,
         });
+        onProgress?.(++scanned, localList.length);
+        await yieldIfNeeded();
       }
       const hashMs = Date.now() - hashStartedAt;
 
       const indexRaw = await indexPromise;
+      if (indexAbortError) throw indexAbortError;
       const indexMs = Date.now() - hashStartedAt - hashMs;
 
       if (indexRaw) {
@@ -865,6 +1014,12 @@ export function createUpstashClient(
               item.size <= PIPELINE_MAX_CHARS,
           );
           const bigItems = toFetch.filter((item) => !smallItems.includes(item));
+
+          // 跳过的项算“已完成”，进度条直接从跳过的数量起步
+          const readTotal = remoteSessions.length;
+          let readDone = skipped;
+          const reportRead = () => onProgress?.(readDone, readTotal);
+          reportRead();
 
           const readBatches = groupBatchesByEncoding(
             smallItems,
@@ -897,6 +1052,8 @@ export function createUpstashClient(
                 }
               }),
             );
+            readDone += batch.length;
+            reportRead();
           });
 
           await Promise.all(
@@ -922,6 +1079,8 @@ export function createUpstashClient(
               } catch (e) {
                 console.warn("[Upstash] failed to parse session", item.id);
               }
+              readDone += 1;
+              reportRead();
             }),
           );
 

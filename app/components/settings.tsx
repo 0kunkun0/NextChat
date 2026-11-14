@@ -588,8 +588,8 @@ function SyncItems() {
   }, [syncStore]);
 
   const [showSyncConfigModal, setShowSyncConfigModal] = useState(false);
-  // 上传进度（分片），用于在按钮上显示 x/y，不用一直干等
-  const [uploadProgress, setUploadProgress] = useState<{
+  // 同步进度（上传 / 下载共用），在按钮上显示 x/y，不用一直干等
+  const [syncProgress, setSyncProgress] = useState<{
     done: number;
     total: number;
   } | null>(null);
@@ -599,15 +599,21 @@ function SyncItems() {
     controller: AbortController;
   } | null>(null);
 
-  const uploadText = !uploadProgress
-    ? Locale.Settings.Sync.Upload
-    : uploadProgress.total > 0
-    ? `${Locale.Settings.Sync.Uploading} ${uploadProgress.done}/${uploadProgress.total}`
-    : Locale.Settings.Sync.Uploading;
+  const progressLabel = (label: string) =>
+    syncProgress
+      ? syncProgress.total > 0
+        ? `${label} ${syncProgress.done}/${syncProgress.total}`
+        : label
+      : null;
+
+  const uploadText =
+    progressLabel(Locale.Settings.Sync.Uploading) ??
+    Locale.Settings.Sync.Upload;
 
   const downloadText =
     syncJob?.type === "download"
-      ? Locale.Settings.Sync.Downloading
+      ? progressLabel(Locale.Settings.Sync.Downloading) ??
+        Locale.Settings.Sync.Downloading
       : Locale.Settings.Sync.Download;
 
   // 云端数据的状态文案：分别显示上次上传 / 下载的时间
@@ -672,12 +678,12 @@ function SyncItems() {
                         signal: controller.signal,
                       });
                       const local = getLocalAppState();
-                      setUploadProgress({ done: 0, total: 0 });
+                      setSyncProgress(null);
                       showToast(Locale.Settings.Sync.Uploading);
                       // 先让「上传中」这一帧渲染出来，再去做 JSON 序列化 / 分片这类重活
                       await new Promise((resolve) => setTimeout(resolve, 0));
                       const stats = await client.upload(local, (done, total) =>
-                        setUploadProgress({ done, total }),
+                        setSyncProgress({ done, total }),
                       );
                       syncStore.markUploadTime();
                       if (stats.total === 0) {
@@ -699,7 +705,7 @@ function SyncItems() {
                         console.error("[Upload]", e);
                       }
                     } finally {
-                      setUploadProgress(null);
+                      setSyncProgress(null);
                       setSyncJob(null);
                     }
                   }}
@@ -712,12 +718,16 @@ function SyncItems() {
                     const controller = new AbortController();
                     setSyncJob({ type: "download", controller });
                     try {
+                      setSyncProgress(null);
                       showToast(Locale.Settings.Sync.Downloading);
                       const client = createUpstashClient(syncStore, {
                         signal: controller.signal,
                       });
                       // 把本地状态传进去：和远端哈希一致的项目直接跳过，不再下载
-                      const remote = await client.download(getLocalAppState());
+                      const remote = await client.download(
+                        getLocalAppState(),
+                        (done, total) => setSyncProgress({ done, total }),
+                      );
                       if (!remote) {
                         showToast(Locale.Settings.Sync.NoRemoteData);
                         return;
