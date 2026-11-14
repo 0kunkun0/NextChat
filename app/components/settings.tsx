@@ -86,6 +86,7 @@ import { Avatar, AvatarPicker } from "./emoji";
 import { getClientConfig } from "../config/client";
 import { useSyncStore } from "../store/sync";
 import { useLowMemoryStore } from "../store/low-memory";
+import { useDebugLogStore } from "../store/debug-log";
 import { nanoid } from "nanoid";
 import { useMaskStore } from "../store/mask";
 import { ProviderType } from "../utils/cloud";
@@ -93,6 +94,13 @@ import { TTSConfigList } from "./tts-config";
 import { RealtimeConfigList } from "./realtime-chat/realtime-config";
 import { createUpstashClient, isAbortError } from "../utils/cloud/upstash";
 import { getLocalAppState, setLocalAppState } from "../utils/sync";
+import dynamic from "next/dynamic";
+
+// 调试日志查看器：单独打成一个 chunk，点开才加载
+const DebugLogModal = dynamic(
+  () => import("./debug-log").then((mod) => mod.DebugLogModal),
+  { ssr: false },
+);
 
 function EditPromptModal(props: { id: string; onClose: () => void }) {
   const promptStore = usePromptStore();
@@ -781,6 +789,9 @@ export function Settings() {
   const updateConfig = config.update;
   const lowMemoryEnabled = useLowMemoryStore((state) => state.enabled);
   const setLowMemory = useLowMemoryStore((state) => state.setEnabled);
+  const debugLogEnabled = useDebugLogStore((state) => state.enabled);
+  const setDebugLogEnabled = useDebugLogStore((state) => state.setEnabled);
+  const [showDebugLog, setShowDebugLog] = useState(false);
 
   // 观察用的堆占用（只有 Chrome 系浏览器提供 performance.memory）
   const [heapMb, setHeapMb] = useState<number | null>(null);
@@ -1813,6 +1824,28 @@ export function Settings() {
             </ListItem>
           )}
 
+          <ListItem
+            title={Locale.Settings.DebugLog.Toggle.Title}
+            subTitle={Locale.Settings.DebugLog.Toggle.SubTitle}
+          >
+            <input
+              type="checkbox"
+              aria-label={Locale.Settings.DebugLog.Toggle.Title}
+              checked={debugLogEnabled}
+              onChange={(e) => setDebugLogEnabled(e.currentTarget.checked)}
+            ></input>
+          </ListItem>
+
+          <ListItem
+            title={Locale.Settings.DebugLog.Title}
+            subTitle={Locale.Settings.DebugLog.View}
+          >
+            <IconButton
+              text={Locale.Settings.DebugLog.View}
+              onClick={() => setShowDebugLog(true)}
+            />
+          </ListItem>
+
           <ListItem title={Locale.Settings.SendKey}>
             <Select
               aria-label={Locale.Settings.SendKey}
@@ -2191,6 +2224,10 @@ export function Settings() {
 
         {shouldShowPromptModal && (
           <UserPromptModal onClose={() => setShowPromptModal(false)} />
+        )}
+        {/* 调试日志查看器按需加载：不打开就不下载这部分代码 */}
+        {showDebugLog && (
+          <DebugLogModal onClose={() => setShowDebugLog(false)} />
         )}
         <List>
           <RealtimeConfigList

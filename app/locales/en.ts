@@ -262,6 +262,21 @@ const en: LocaleType = {
         SubTitle: "Show the regenerate-title button in the chat header",
       },
     },
+    DebugLog: {
+      Title: "Debug Logs",
+      Toggle: {
+        Title: "Record frontend debug info",
+        SubTitle:
+          "Save console output locally (gzip compressed, capped at 10MB, oldest logs dropped)",
+      },
+      View: "View debug logs",
+      Refresh: "Refresh",
+      Clear: "Clear",
+      Empty: "No logs yet",
+      LoadMore: "Load older",
+      Stats: (size: string, count: number) => `${size} · ${count} entries`,
+      Dropped: (count: number) => ` (dropped oldest ${count})`,
+    },
     AutoGenerateTitle: {
       Title: "Auto Generate Title",
       SubTitle: "Generate a suitable title based on the conversation content",

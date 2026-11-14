@@ -259,6 +259,21 @@ const cn = {
         SubTitle: "对话顶部显示重新生成标题的按钮",
       },
     },
+    DebugLog: {
+      Title: "调试日志",
+      Toggle: {
+        Title: "记录前端调试信息",
+        SubTitle:
+          "把 console 输出保存到本地（压缩存储，上限 10MB，超出后丢弃最早的日志）",
+      },
+      View: "查看调试日志",
+      Refresh: "刷新",
+      Clear: "清空",
+      Empty: "暂无日志",
+      LoadMore: "载入更早",
+      Stats: (size: string, count: number) => `占用 ${size} · ${count} 条`,
+      Dropped: (count: number) => `（已丢弃最早 ${count} 条）`,
+    },
     AutoGenerateTitle: {
       Title: "自动生成标题",
       SubTitle: "根据对话内容生成合适的标题",

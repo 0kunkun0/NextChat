@@ -28,6 +28,7 @@ import { AuthPage } from "./auth";
 import { getClientConfig } from "../config/client";
 import { type ClientApi, getClientApi } from "../client/api";
 import { useAccessStore, useChatStore } from "../store";
+import { useDebugLogStore } from "../store/debug-log";
 import clsx from "clsx";
 import { initializeMcpSystem, isMcpEnabled } from "../mcp/actions";
 
@@ -248,6 +249,9 @@ export function Home() {
   useSwitchTheme();
   useLoadData();
   useHtmlLang();
+
+  // 恢复上次打开过的调试日志开关（尽早装钩子，后面的日志才抓得到）
+  useDebugLogStore.getState().init();
 
   useEffect(() => {
     console.log("[Config] got config from build time", getClientConfig());
