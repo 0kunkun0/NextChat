@@ -3,6 +3,13 @@
   overflow: auto;
 }
 
+// 窄屏：减小内边距，避免内容被挤出弹窗
+@media screen and (max-width: 600px) {
+  .settings {
+    padding: 12px;
+  }
+}
+
 .avatar {
   cursor: pointer;
   position: relative;
@@ -75,6 +82,6 @@
 
 .subtitle-button {
   button {
-    overflow:visible ;
+    overflow: visible;
   }
 }

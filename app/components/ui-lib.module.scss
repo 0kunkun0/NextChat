@@ -36,8 +36,12 @@
 
 .list-item {
   display: flex;
+  // 放不下就换行，任何宽度下都不会把整行顶出屏幕
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
+  column-gap: 12px;
+  row-gap: 8px;
   min-height: 40px;
   border-bottom: var(--border-in-light);
   padding: 10px 20px;
@@ -46,6 +50,9 @@
   .list-header {
     display: flex;
     align-items: center;
+    // 允许标题区被压缩：否则右侧按钮多的时候整行会被撑到屏幕外
+    flex: 1 1 auto;
+    min-width: 0;
 
     .list-icon {
       margin-right: 10px;
@@ -54,12 +61,19 @@
     .list-item-title {
       font-size: 14px;
       font-weight: bolder;
+      overflow-wrap: anywhere;
     }
 
     .list-item-sub-title {
       font-size: 12px;
       font-weight: normal;
+      overflow-wrap: anywhere;
     }
+  }
+
+  // 操作区（多个按钮的容器）：靠右
+  > :not(.list-header) {
+    margin-left: auto;
   }
 
   &.vertical {
@@ -72,6 +86,30 @@
       .list-item-sub-title {
         margin-bottom: 2px;
       }
+    }
+  }
+}
+
+/**
+ * 窄屏：标题独占一行，操作按钮整块换到下一行并靠右。
+ * 设置页里「云端数据」「全量同步」这类条目有 4~5 个带文字的按钮，
+ * 一行放不下会顶出屏幕。
+ */
+@media screen and (max-width: 760px) {
+  .list-item {
+    row-gap: 10px;
+    padding: 12px 16px;
+
+    > .list-header {
+      flex: 1 1 100%;
+      flex-wrap: wrap;
+    }
+
+    // 按钮组本身也允许换行（4~5 个带文字的按钮一行放不下）
+    > div {
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 4px;
     }
   }
 }
@@ -347,4 +385,3 @@
     }
   }
 }
-
