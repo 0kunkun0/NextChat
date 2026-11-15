@@ -324,6 +324,28 @@ const en: LocaleType = {
         ClearFailed: "Failed to clear cloud data",
       },
 
+      Backup: {
+        ManualTitle: "Local backup (manual)",
+        ManualInfo: (time: string, sessions: number) =>
+          time
+            ? `Last manual backup: ${time}, ${sessions} session(s)`
+            : "No manual backup yet",
+        AutoTitle: "Local backup (before download)",
+        AutoInfo: (time: string, sessions: number) =>
+          time
+            ? `Last auto backup: ${time}, ${sessions} session(s)`
+            : "No auto backup yet (one is saved before every download)",
+        Create: "Back up now",
+        Swap: "Swap",
+        CreateDone: (sessions: number) =>
+          `Backed up ${sessions} session(s) — backups are never deleted automatically`,
+        SwapConfirm:
+          "Chats, prompts and masks will be swapped with the backup (your current content moves into the same backup slot). Settings such as API keys are untouched. Continue?",
+        SwapDone: "Swapped — your previous content is in the backup slot now",
+        Missing: "No usable backup",
+        Failed: "Local backup failed",
+      },
+
       Config: {
         Modal: {
           Title: "Config Sync",

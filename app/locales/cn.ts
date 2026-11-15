@@ -320,6 +320,28 @@ const cn = {
         ClearFailed: "清空云端数据失败",
       },
 
+      Backup: {
+        ManualTitle: "本地备份（手动）",
+        ManualInfo: (time: string, sessions: number) =>
+          time
+            ? `上次手动备份：${time}，共 ${sessions} 个会话`
+            : "还没有手动备份",
+        AutoTitle: "本地备份（下载前自动）",
+        AutoInfo: (time: string, sessions: number) =>
+          time
+            ? `上次下载前自动备份：${time}，共 ${sessions} 个会话`
+            : "还没有自动备份（每次下载前会自动存一份）",
+        Create: "立即备份",
+        Swap: "交换",
+        CreateDone: (sessions: number) =>
+          `已备份当前 ${sessions} 个会话（不会自动删除）`,
+        SwapConfirm:
+          "将用备份里的聊天记录、提示词和面具与当前内容交换（当前内容会存进同一个备份槽位）。API Key 等设置不受影响。继续吗？",
+        SwapDone: "已交换：当前内容已存入备份，可再点一次换回来",
+        Missing: "没有可用的备份",
+        Failed: "本地备份操作失败",
+      },
+
       Config: {
         Modal: {
           Title: "配置云同步",

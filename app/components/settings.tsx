@@ -68,6 +68,7 @@ import {
   Path,
   RELEASE_URL,
   STORAGE_KEY,
+  StoreKey,
   ServiceProvider,
   SlotID,
   UPDATE_URL,
@@ -95,6 +96,13 @@ import { TTSConfigList } from "./tts-config";
 import { RealtimeConfigList } from "./realtime-chat/realtime-config";
 import { createUpstashClient, isAbortError } from "../utils/cloud/upstash";
 import { getLocalAppState, setLocalAppState } from "../utils/sync";
+import {
+  loadBackup,
+  loadBackupInfo,
+  parseBackup,
+  saveBackup,
+  type BackupSlot,
+} from "../utils/backup";
 import dynamic from "next/dynamic";
 
 // 调试日志查看器：单独打成一个 chunk，点开才加载
@@ -620,6 +628,60 @@ function SyncItems() {
     controller: AbortController;
   } | null>(null);
 
+  // 本地备份的元信息（时间 / 会话数），只用于展示
+  const [backupInfo, setBackupInfo] = useState<
+    Awaited<ReturnType<typeof loadBackupInfo>>
+  >({ auto: null, manual: null });
+
+  const refreshBackupInfo = async () => {
+    try {
+      setBackupInfo(await loadBackupInfo());
+    } catch (e) {
+      console.warn("[Backup] failed to read backup info", e);
+    }
+  };
+
+  useEffect(() => {
+    void refreshBackupInfo();
+  }, []);
+
+  const formatBackupTime = (time: number) =>
+    time ? new Date(time).toLocaleString() : "";
+
+  /**
+   * 备份与当前内容「交换」。
+   * 不叫「回滚」：手滑用备份覆盖了正确内容时，再点一次就能换回来，
+   * 两个方向都不会丢数据。
+   */
+  const swapWithBackup = async (slot: BackupSlot) => {
+    if (!(await showConfirm(Locale.Settings.Sync.Backup.SwapConfirm))) return;
+
+    try {
+      const record = await loadBackup(slot);
+      if (!record) {
+        showToast(Locale.Settings.Sync.Backup.Missing);
+        return;
+      }
+
+      // 先把「当前内容」写回同一个槽位，再应用备份 → 真正的交换
+      await saveBackup(slot, getLocalAppState());
+
+      const backupState = parseBackup(record);
+      const partial: Record<string, any> = {};
+      [StoreKey.Chat, StoreKey.Prompt, StoreKey.Mask].forEach((key) => {
+        if (backupState?.[key] !== undefined) partial[key] = backupState[key];
+      });
+      // 只恢复内容类数据，不动 API Key / 设置，避免换一下把配置也改掉
+      setLocalAppState(partial as any);
+
+      await refreshBackupInfo();
+      showToast(Locale.Settings.Sync.Backup.SwapDone);
+    } catch (e) {
+      console.error("[Backup] swap failed", e);
+      showToast(Locale.Settings.Sync.Backup.Failed);
+    }
+  };
+
   const progressLabel = (label: string) =>
     syncProgress
       ? syncProgress.total > 0
@@ -724,9 +786,18 @@ function SyncItems() {
       const client = createUpstashClient(syncStore, {
         signal: controller.signal,
       });
+
+      const local = getLocalAppState();
+      // 下载会用云端整体覆盖本地：先自动存一份当前内容，
+      // 手滑点错了还能在「本地备份」里换回来
+      await saveBackup("auto", local).catch((e) =>
+        console.warn("[Backup] auto backup before download failed", e),
+      );
+      await refreshBackupInfo();
+
       // 把本地状态传进去：和远端哈希一致的项目直接跳过，不再下载
       const remote = await client.download(
-        getLocalAppState(),
+        local,
         (done, total) => setSyncProgress({ done, total }),
         { forceFull },
       );
@@ -921,6 +992,57 @@ function SyncItems() {
               onClick={() => {
                 syncStore.import();
               }}
+            />
+          </div>
+        </ListItem>
+
+        {/*
+          本地备份：下载覆盖本地数据之前会自动存一份；
+          恢复做成「交换」——错把正确内容覆盖掉也能再点一次换回来。
+        */}
+        <ListItem
+          title={Locale.Settings.Sync.Backup.ManualTitle}
+          subTitle={Locale.Settings.Sync.Backup.ManualInfo(
+            backupInfo.manual ? formatBackupTime(backupInfo.manual.time) : "",
+            backupInfo.manual?.sessions ?? 0,
+          )}
+        >
+          <div style={{ display: "flex" }}>
+            <IconButton
+              icon={<AddIcon />}
+              text={Locale.Settings.Sync.Backup.Create}
+              onClick={async () => {
+                const record = await saveBackup("manual", getLocalAppState());
+                await refreshBackupInfo();
+                showToast(
+                  record
+                    ? Locale.Settings.Sync.Backup.CreateDone(record.sessions)
+                    : Locale.Settings.Sync.Backup.Failed,
+                );
+              }}
+            />
+            <IconButton
+              icon={<ResetIcon />}
+              text={Locale.Settings.Sync.Backup.Swap}
+              disabled={!backupInfo.manual}
+              onClick={() => void swapWithBackup("manual")}
+            />
+          </div>
+        </ListItem>
+
+        <ListItem
+          title={Locale.Settings.Sync.Backup.AutoTitle}
+          subTitle={Locale.Settings.Sync.Backup.AutoInfo(
+            backupInfo.auto ? formatBackupTime(backupInfo.auto.time) : "",
+            backupInfo.auto?.sessions ?? 0,
+          )}
+        >
+          <div style={{ display: "flex" }}>
+            <IconButton
+              icon={<ResetIcon />}
+              text={Locale.Settings.Sync.Backup.Swap}
+              disabled={!backupInfo.auto}
+              onClick={() => void swapWithBackup("auto")}
             />
           </div>
         </ListItem>

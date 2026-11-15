@@ -14,6 +14,7 @@ import type {
 } from "../client/api";
 import { getClientApi } from "../client/api";
 import { ChatControllerPool } from "../client/controller";
+import { clearBackups } from "../utils/backup";
 import { showToast } from "../components/ui-lib";
 import {
   DEFAULT_INPUT_TEMPLATE,
@@ -1436,6 +1437,10 @@ export const useChatStore = createPersistStore(
       },
 
       async clearAllData() {
+        // 本地备份默认永不自动删除，只有这里（重置所有数据）会一起清掉
+        await clearBackups().catch((e) =>
+          console.warn("[Backup] failed to clear backups", e),
+        );
         await indexedDBStorage.clear();
         localStorage.clear();
         location.reload();
