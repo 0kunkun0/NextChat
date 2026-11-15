@@ -47,7 +47,31 @@ export default function RootLayout({
           href="/site.webmanifest"
           crossOrigin="use-credentials"
         ></link>
-        <script src="/serviceWorkerRegister.js" defer></script>
+        {/*
+          只在生产环境注册 Service Worker。
+          开发时（next dev / HMR）chunk 名和模块图一直在变，SW 缓存里的旧 chunk
+          配上新页面，dynamic import 会拿到已被删除的模块，直接报
+          "Cannot read properties of undefined (reading 'call')"。
+        */}
+        {process.env.NODE_ENV === "production" ? (
+          <script src="/serviceWorkerRegister.js" defer></script>
+        ) : (
+          /*
+           开发环境反过来主动清一次：之前注册过的 SW 还会继续拦截请求，
+           不清掉的话就算不再注册，旧缓存仍然会让 dev 一直炸。
+          */
+          <script
+            dangerouslySetInnerHTML={{
+              __html:
+                "(function(){try{" +
+                "if(navigator.serviceWorker){navigator.serviceWorker.getRegistrations()" +
+                ".then(function(rs){rs.forEach(function(r){r.unregister()})}).catch(function(){})}" +
+                "if(window.caches){caches.keys().then(function(ks){ks.forEach(function(k){" +
+                "if(k.indexOf('chatgpt-next-web')>=0)caches.delete(k)})}).catch(function(){})}" +
+                "}catch(e){}})()",
+            }}
+          />
+        )}
         {/*
           首屏兜底背景色：CSS 还没下载完 / PWA 冷启动时先铺上正确的底色，
           否则会闪一下白屏（深色主题下尤其明显）

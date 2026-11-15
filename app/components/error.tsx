@@ -31,7 +31,7 @@ const CHUNK_RELOAD_COOLDOWN = 10_000;
 function isChunkLoadError(error: Error | null) {
   if (!error) return false;
   const text = `${error.name} ${error.message}`;
-  return /ChunkLoadError|Loading (CSS )?chunk [\w-]+ failed|Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module/i.test(
+  return /ChunkLoadError|Loading (CSS )?chunk [\w-]+ failed|Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Cannot read propert(?:y|ies) of undefined \(reading 'call'\)|__webpack_modules__/i.test(
     text,
   );
 }
