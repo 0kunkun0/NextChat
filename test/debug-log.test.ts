@@ -74,6 +74,29 @@ describe("debug log console hook", () => {
     expect(useDebugLogStore.getState().enabled).toBe(false);
     expect(console.log).toBe(base);
   });
+
+  test("long message content is truncated to a short preview", () => {
+    console.log = (() => {}) as any;
+    installConsoleHook();
+
+    const content = "这是一段很长的对话内容".repeat(50);
+    const before = getPendingLogs().length;
+    console.log("[Request] payload: ", {
+      model: "gpt-4",
+      messages: [{ role: "user", content }],
+    });
+
+    const pending = getPendingLogs();
+    expect(pending.length).toBe(before + 1);
+    const text = pending[pending.length - 1].text;
+
+    // 短字段原样保留，长内容只留前 10 个字符
+    expect(text).toContain("gpt-4");
+    expect(text).toContain("这是一段很长的对话内容".slice(0, 10));
+    expect(text).not.toContain("这是一段很长的对话内容".repeat(5));
+    // 带上总长度，方便判断原来有多长
+    expect(text).toContain(`(+${content.length - 10})`);
+  });
 });
 
 describe("uncaught error capture", () => {

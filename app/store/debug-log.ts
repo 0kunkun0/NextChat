@@ -29,6 +29,25 @@ function getLogStore() {
 
 /** 单条日志最多保留多少字符（避免把巨大的对象整个存进去） */
 const MAX_ENTRY_CHARS = 2000;
+/**
+ * 长文本在日志里只保留前面这么多个字符。
+ * 请求体里会带上整段对话上下文，原样存进日志既占地方又等于把聊天内容
+ * 抄了一遍；截成「前 10 个字符 + 总长度」足够定位问题，也看不出内容。
+ */
+const PREVIEW_CHARS = 10;
+/** 超过这个长度才截断（短字符串原样保留，否则错误信息都没法看） */
+const PREVIEW_THRESHOLD = 80;
+
+/** 把长文本压成 `前10个字符…(+剩余字数)` */
+export function previewText(value: string): string {
+  if (value.length <= PREVIEW_THRESHOLD) return value;
+  return `${value.slice(0, PREVIEW_CHARS)}…(+${value.length - PREVIEW_CHARS})`;
+}
+
+/** JSON.stringify 的 replacer：对象里的长字符串同样截断 */
+function previewReplacer(_key: string, value: any) {
+  return typeof value === "string" ? previewText(value) : value;
+}
 /** 本地日志上限 */
 export const MAX_LOG_BYTES = 10 * 1024 * 1024;
 /** 丢弃旧日志后回落到这个大小以下 */
@@ -109,13 +128,13 @@ function writeEnabled(enabled: boolean) {
 function formatArgs(args: unknown[]) {
   const text = args
     .map((arg) => {
-      if (typeof arg === "string") return arg;
+      if (typeof arg === "string") return previewText(arg);
       if (arg instanceof Error)
         return arg.stack || `${arg.name}: ${arg.message}`;
       try {
-        return JSON.stringify(arg);
+        return JSON.stringify(arg, previewReplacer);
       } catch {
-        return String(arg);
+        return previewText(String(arg));
       }
     })
     .join(" ");
