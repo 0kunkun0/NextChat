@@ -786,11 +786,25 @@ export function createUpstashClient(
         prepare?: (session: any) => Promise<{ json: string; hash: string }>;
         /** 写进索引的额外元信息（比如加密参数） */
         extraIndex?: Record<string, any>;
+        /**
+         * 只上传这些会话（其它会话的索引条目原样保留）。
+         * 用于「聊天界面右上角直接上传当前会话」：只动一条，
+         * 不用把几 MB 的历史全传一遍。
+         */
+        sessionIds?: string[];
       },
     ): Promise<{ uploaded: number; skipped: number; total: number }> {
       const startedAt = Date.now();
       const chat = state[StoreKey.Chat] ?? {};
-      const sessions: any[] = Array.isArray(chat.sessions) ? chat.sessions : [];
+      const allSessions: any[] = Array.isArray(chat.sessions)
+        ? chat.sessions
+        : [];
+      const onlyIds = options?.sessionIds?.length
+        ? new Set(options.sessionIds)
+        : null;
+      const sessions = onlyIds
+        ? allSessions.filter((session: any) => onlyIds.has(session.id))
+        : allSessions;
       const { sessions: _sessions, ...chatMeta } = chat;
       const storeNames = [
         StoreKey.Access,
@@ -1047,7 +1061,16 @@ export function createUpstashClient(
         v: 3,
         updatedAt: Date.now(),
         chat: chatMeta,
-        sessions: sessionItems,
+        // 只上传单个会话时，其它会话的索引条目必须原样保留，
+        // 否则下次下载会以为它们不存在了
+        sessions: onlyIds
+          ? [
+              ...sessionItems,
+              ...(remoteIndex?.sessions ?? []).filter(
+                (item) => !onlyIds.has(item.id),
+              ),
+            ]
+          : sessionItems,
         stores: storeItems,
         compress,
         ...(options?.extraIndex ?? {}),

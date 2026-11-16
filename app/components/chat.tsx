@@ -14,6 +14,7 @@ import SendWhiteIcon from "../icons/send-white.svg";
 import RenameIcon from "../icons/rename.svg";
 import EditIcon from "../icons/rename.svg";
 import ExportIcon from "../icons/share.svg";
+import UploadIcon from "../icons/upload.svg";
 import ReturnIcon from "../icons/return.svg";
 import CopyIcon from "../icons/copy.svg";
 import SpeakIcon from "../icons/speak.svg";
@@ -65,6 +66,8 @@ import {
   usePluginStore,
 } from "../store";
 import { useLowMemoryStore } from "../store/low-memory";
+import { useSyncStore } from "../store/sync";
+import { uploadSessionNow } from "../utils/upload-one";
 
 import {
   autoGrowTextArea,
@@ -1834,6 +1837,9 @@ function _Chat() {
       : -1;
 
   const [showPromptModal, setShowPromptModal] = useState(false);
+  // 单条会话上传：进行中时按钮禁用，避免连点
+  const [uploadingSession, setUploadingSession] = useState(false);
+  const syncStore = useSyncStore();
 
   const clientConfig = useMemo(() => getClientConfig(), []);
 
@@ -2138,6 +2144,46 @@ function _Chat() {
             </div>
           </div>
           <div className="window-actions">
+            {/*
+              只上传当前这条会话：改完随手点一下就行，
+              不用跑去设置页做全量上传（那条路会把整个历史都推一遍）。
+            */}
+            {syncStore.cloudSync() && (
+              <div className="window-action-button">
+                <IconButton
+                  icon={<UploadIcon />}
+                  bordered
+                  disabled={uploadingSession}
+                  title={Locale.Chat.Actions.UploadSession}
+                  aria={Locale.Chat.Actions.UploadSession}
+                  onClick={async () => {
+                    if (uploadingSession) return;
+                    setUploadingSession(true);
+                    showToast(Locale.Chat.Actions.UploadingSession);
+                    try {
+                      const stats = await uploadSessionNow(session.id);
+                      showToast(
+                        stats.total === 0
+                          ? Locale.Chat.Actions.UploadNothingChanged
+                          : Locale.Chat.Actions.UploadSessionDone,
+                      );
+                    } catch (e: any) {
+                      const locked = String(e?.message ?? "").includes(
+                        "encryption",
+                      );
+                      showToast(
+                        locked
+                          ? Locale.Settings.Sync.Encryption.Locked
+                          : Locale.Chat.Actions.UploadSessionFailed,
+                      );
+                      console.error("[Upload session]", e);
+                    } finally {
+                      setUploadingSession(false);
+                    }
+                  }}
+                />
+              </div>
+            )}
             {config.showRefreshTitleButton !== false && (
               <div className="window-action-button">
                 <IconButton

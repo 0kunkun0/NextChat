@@ -73,6 +73,11 @@ const cn = {
       ContinueUnsupported: "当前模型不支持继续生成（仅 DeepSeek 支持前缀补全）",
       RefreshCache: "刷新 SW 缓存",
       Debug: "原始数据",
+      UploadSession: "上传这条会话",
+      UploadingSession: "正在上传这条会话…",
+      UploadSessionDone: "已上传这条会话",
+      UploadNothingChanged: "云端已是这条会话的最新内容",
+      UploadSessionFailed: "上传这条会话失败",
     },
     Commands: {
       new: "新建聊天",

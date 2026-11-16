@@ -210,6 +210,52 @@ describe("upstash incremental upload", () => {
     expect(server.writes).toEqual(["backup-v2-s-s1", "backup-v2-index"]);
   });
 
+  test("sessionIds uploads only that session and keeps the rest of the index", async () => {
+    const server = installFakeUpstash();
+    await client.upload(makeState());
+    const before = readIndex(server);
+    expect(before.sessions.map((s: any) => s.id).sort()).toEqual(["s1", "s2"]);
+
+    server.writes.length = 0;
+    const stats = await client.upload(makeState("hello, edited"), undefined, {
+      sessionIds: ["s1"],
+    });
+
+    // 只写了 s1 和索引，其它会话 / 配置一个都没碰
+    expect(stats.uploaded).toBe(1);
+    expect(server.writes).toEqual(["backup-v2-s-s1", "backup-v2-index"]);
+
+    const after = readIndex(server);
+    // 另一条会话的索引条目必须原样保留
+    expect(after.sessions.map((s: any) => s.id).sort()).toEqual(["s1", "s2"]);
+    expect(after.sessions.find((s: any) => s.id === "s2")).toEqual(
+      before.sessions.find((s: any) => s.id === "s2"),
+    );
+    // 被上传的那条哈希变了
+    expect(after.sessions.find((s: any) => s.id === "s1").h).not.toBe(
+      before.sessions.find((s: any) => s.id === "s1").h,
+    );
+
+    // 内容确实可下载回来
+    const restored = await client.download();
+    expect(
+      restored[StoreKey.Chat].sessions.find((s: any) => s.id === "s1")
+        .messages[0].content,
+    ).toBe("hello, edited");
+  });
+
+  test("sessionIds with unchanged content writes nothing", async () => {
+    const server = installFakeUpstash();
+    await client.upload(makeState());
+
+    server.writes.length = 0;
+    const stats = await client.upload(makeState(), undefined, {
+      sessionIds: ["s2"],
+    });
+    expect(stats.total).toBe(0);
+    expect(server.writes).toEqual([]);
+  });
+
   test("uploading unchanged state writes nothing", async () => {
     const server = installFakeUpstash();
     await client.upload(makeState());

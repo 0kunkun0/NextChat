@@ -75,6 +75,11 @@ const en: LocaleType = {
         "This model does not support continuation (only DeepSeek prefix completion)",
       RefreshCache: "Refresh cache",
       Debug: "Raw Data",
+      UploadSession: "Upload this session",
+      UploadingSession: "Uploading this session…",
+      UploadSessionDone: "This session has been uploaded",
+      UploadNothingChanged: "The cloud already has the latest version",
+      UploadSessionFailed: "Failed to upload this session",
     },
     Commands: {
       new: "Start a new chat",
