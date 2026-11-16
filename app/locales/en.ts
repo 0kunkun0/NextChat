@@ -386,8 +386,7 @@ const en: LocaleType = {
           "The cloud backup is encrypted — the password is required to decrypt it.",
         SetTip:
           "The password never leaves this device — it only derives the key locally. " +
-          "If you forget it, the cloud data cannot be recovered.\n" +
-          "Enabling will re-upload everything once (contents become ciphertext).",
+          "If you forget it, the cloud data cannot be recovered.\n",
         Password: "Encryption password",
         PasswordConfirm: "Repeat password",
         Remember:
