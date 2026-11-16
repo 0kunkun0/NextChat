@@ -106,6 +106,20 @@ import {
   type ConflictChoice,
   type SyncConflict,
 } from "../utils/sync-merge";
+import { createKdfParams, isCryptoAvailable, keyedHash } from "../utils/crypto";
+import {
+  EncryptionLockedError,
+  ensureBundle,
+  makeDecodeHook,
+  makePrepareHook,
+} from "../utils/crypto-flow";
+import {
+  clearRememberedKey,
+  lockKey,
+  saveRememberedKey,
+  setActiveBundle,
+} from "../utils/crypto-session";
+import { askEncryptPassword } from "./password-modal";
 import dynamic from "next/dynamic";
 
 // 调试日志查看器：单独打成一个 chunk，点开才加载
@@ -700,11 +714,27 @@ function SyncItems() {
     };
   }, [chatStore.sessions, maskStore.masks, promptStore.prompts]);
 
+  /** 统一的加密相关错误提示 */
+  const showCryptoError = (e: any) => {
+    if (!(e instanceof EncryptionLockedError)) return false;
+    showToast(
+      e.message === "wrong-password"
+        ? Locale.Settings.Sync.Encryption.WrongPassword
+        : e.message === "unsupported"
+        ? Locale.Settings.Sync.Encryption.Unsupported
+        : Locale.Settings.Sync.Encryption.Locked,
+    );
+    return true;
+  };
+
   /**
    * 上传 / 下载的共同实现。
    * forceFull = true 时忽略哈希比对，把全部数据重新传一遍（用于修复云端或本地脏数据）。
    */
-  const runUpload = async (forceFull = false) => {
+  const runUpload = async (
+    forceFull = false,
+    opts: { dropEncryption?: boolean } = {},
+  ) => {
     const controller = new AbortController();
     setSyncJob({ type: "upload", controller });
     try {
@@ -714,12 +744,30 @@ function SyncItems() {
       const local = getLocalAppState();
       setSyncProgress(null);
       showToast(Locale.Settings.Sync.Uploading);
+
+      // 开了加密就必须先有密钥，否则会把明文传上去
+      const bundle = syncStore.encryption.enabled
+        ? await ensureBundle(client)
+        : null;
+      if (syncStore.encryption.enabled && !bundle) {
+        throw new EncryptionLockedError("locked");
+      }
+      if (bundle) syncStore.setEncryption({ enabled: true, unlocked: true });
+
       // 先让「上传中」这一帧渲染出来，再去做 JSON 序列化 / 分片这类重活
       await new Promise((resolve) => setTimeout(resolve, 0));
       const stats = await client.upload(
         local,
         (done, total) => setSyncProgress({ done, total }),
-        { forceFull },
+        {
+          forceFull,
+          prepare: bundle ? makePrepareHook(bundle) : undefined,
+          extraIndex: bundle
+            ? { enc: bundle.params }
+            : opts.dropEncryption
+            ? { enc: undefined }
+            : undefined,
+        },
       );
       syncStore.markUploadTime();
       // 上传成功后云端 == 本地，记为下次同步的基线
@@ -736,7 +784,7 @@ function SyncItems() {
     } catch (e) {
       if (isAbortError(e)) {
         showToast(Locale.Settings.Sync.Canceled);
-      } else {
+      } else if (!showCryptoError(e)) {
         showToast(Locale.Settings.Sync.UploadFailed);
         console.error("[Upload]", e);
       }
@@ -764,11 +812,21 @@ function SyncItems() {
       );
       refreshBackups();
 
+      // 云端可能是加密的：先确认密钥（必要时弹窗要密码）
+      const bundle = await ensureBundle(client);
+      if (bundle) syncStore.setEncryption({ enabled: true, unlocked: true });
+
       // 把本地状态传进去：和远端哈希一致的项目直接跳过，不再下载
       const remote = await client.download(
         local,
         (done, total) => setSyncProgress({ done, total }),
-        { forceFull },
+        {
+          forceFull,
+          decode: bundle ? makeDecodeHook(bundle) : undefined,
+          hashSession: bundle
+            ? (json: string) => keyedHash(bundle.macKey, json)
+            : undefined,
+        },
       );
       if (!remote) {
         showToast(Locale.Settings.Sync.NoRemoteData);
@@ -785,7 +843,7 @@ function SyncItems() {
     } catch (e) {
       if (isAbortError(e)) {
         showToast(Locale.Settings.Sync.Canceled);
-      } else {
+      } else if (!showCryptoError(e)) {
         showToast(Locale.Settings.Sync.DownloadFailed);
         console.error("[Download]", e);
       }
@@ -816,8 +874,19 @@ function SyncItems() {
       );
       refreshBackups();
 
-      const remote = await client.download(local, (done, total) =>
-        setSyncProgress({ done, total }),
+      // 云端加密时，先解锁再下载；否则下面比对的就是密文
+      const bundle = await ensureBundle(client);
+      if (bundle) syncStore.setEncryption({ enabled: true, unlocked: true });
+
+      const remote = await client.download(
+        local,
+        (done, total) => setSyncProgress({ done, total }),
+        {
+          decode: bundle ? makeDecodeHook(bundle) : undefined,
+          hashSession: bundle
+            ? (json: string) => keyedHash(bundle.macKey, json)
+            : undefined,
+        },
       );
       if (!remote) {
         showToast(Locale.Settings.Sync.NoRemoteData);
@@ -856,8 +925,13 @@ function SyncItems() {
       setLocalAppState(state);
 
       // 合并结果推回云端（增量：没变的部分会被跳过）
-      await client.upload(state, (done, total) =>
-        setSyncProgress({ done, total }),
+      await client.upload(
+        state,
+        (done, total) => setSyncProgress({ done, total }),
+        {
+          prepare: bundle ? makePrepareHook(bundle) : undefined,
+          extraIndex: bundle ? { enc: bundle.params } : undefined,
+        },
       );
       syncStore.markSynced(syncedHashes);
       syncStore.markUploadTime();
@@ -873,7 +947,7 @@ function SyncItems() {
     } catch (e) {
       if (isAbortError(e)) {
         showToast(Locale.Settings.Sync.Canceled);
-      } else {
+      } else if (!showCryptoError(e)) {
         showToast(Locale.Settings.Sync.SyncFailed);
         console.error("[Sync]", e);
       }
@@ -882,6 +956,53 @@ function SyncItems() {
       setSyncProgress(null);
       setSyncJob(null);
     }
+  };
+
+  /** 开启加密：设置密码 → 生成 salt/迭代 → 全量重传（把明文改写成密文） */
+  const enableEncryption = async () => {
+    if (!isCryptoAvailable()) {
+      showToast(Locale.Settings.Sync.Encryption.Unsupported);
+      return;
+    }
+
+    const input = await askEncryptPassword({
+      title: Locale.Settings.Sync.Encryption.SetTitle,
+      tip: Locale.Settings.Sync.Encryption.SetTip,
+      submitText: Locale.Settings.Sync.Encryption.Enable,
+      withConfirm: true,
+      showRemember: true,
+    });
+    if (!input) return;
+
+    try {
+      const { params, bundle, material } = await createKdfParams(
+        input.password,
+      );
+      setActiveBundle(bundle);
+      if (input.remember) {
+        // createKdfParams 已经顺便给出可直接保存的材料，不需要再跑一遍 PBKDF2
+        saveRememberedKey({ material, params });
+      }
+      syncStore.setEncryption({ enabled: true, unlocked: true });
+      showToast(Locale.Settings.Sync.Encryption.Enabled);
+      // 必须全量：云端现有的是明文
+      await runUpload(true);
+    } catch (e) {
+      console.error("[Encryption] enable failed", e);
+      showToast(Locale.Settings.Sync.Encryption.Failed);
+    }
+  };
+
+  /** 关闭加密：全量重传明文（旧密文会被覆盖） */
+  const disableEncryption = async () => {
+    if (!(await showConfirm(Locale.Settings.Sync.Encryption.DisableConfirm))) {
+      return;
+    }
+
+    syncStore.setEncryption({ enabled: false, unlocked: false });
+    lockKey();
+    clearRememberedKey();
+    await runUpload(true, { dropEncryption: true });
   };
 
   /** 清空当前用户名下的云端备份（成功返回 true，调用方随后会全量上传） */
@@ -955,6 +1076,46 @@ function SyncItems() {
             )}
           </div>
         </ListItem>
+
+        {couldSync && (
+          <ListItem
+            title={Locale.Settings.Sync.Encryption.Title}
+            subTitle={
+              syncStore.encryption.enabled
+                ? syncStore.encryption.unlocked
+                  ? Locale.Settings.Sync.Encryption.StatusOn
+                  : Locale.Settings.Sync.Encryption.StatusLocked
+                : Locale.Settings.Sync.Encryption.StatusOff
+            }
+          >
+            <div style={{ display: "flex" }}>
+              <IconButton
+                text={
+                  syncStore.encryption.enabled
+                    ? Locale.Settings.Sync.Encryption.Disable
+                    : Locale.Settings.Sync.Encryption.Enable
+                }
+                disabled={syncJob !== null}
+                onClick={() =>
+                  void (syncStore.encryption.enabled
+                    ? disableEncryption()
+                    : enableEncryption())
+                }
+              />
+              {syncStore.encryption.enabled &&
+                syncStore.encryption.unlocked && (
+                  <IconButton
+                    text={Locale.Settings.Sync.Encryption.Lock}
+                    onClick={() => {
+                      lockKey();
+                      syncStore.setEncryption({ unlocked: false });
+                      showToast(Locale.Settings.Sync.Encryption.LockedToast);
+                    }}
+                  />
+                )}
+            </div>
+          </ListItem>
+        )}
 
         {couldSync && (
           <ListItem

@@ -72,6 +72,16 @@ const DEFAULT_SYNC_STATE = {
    * 没有它就没法区分“两边都改”和“只有一边改”。
    */
   lastSyncedHashes: {} as Record<string, string>,
+
+  /**
+   * 云端内容加密（AES-256-GCM）。
+   * 只记录开关和展示用的状态，**密钥永远不进 store**（不落盘）。
+   */
+  encryption: {
+    enabled: false,
+    /** 本设备是否已解锁（仅用于界面展示，真值在 crypto-session 里） */
+    unlocked: false,
+  },
 };
 
 export const useSyncStore = createPersistStore(
@@ -101,6 +111,10 @@ export const useSyncStore = createPersistStore(
 
     setBackupLimit(limit: number) {
       set({ backupLimit: clampBackupLimit(limit) });
+    },
+
+    setEncryption(patch: Partial<{ enabled: boolean; unlocked: boolean }>) {
+      set({ encryption: { ...get().encryption, ...patch } });
     },
 
     export() {

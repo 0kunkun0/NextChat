@@ -363,6 +363,36 @@ const cn = {
         Confirm: "按以上选择合并",
       },
 
+      Encryption: {
+        Title: "云端内容加密",
+        StatusOff: "未开启：对话内容和标题在云端是明文",
+        StatusOn: "已开启：消息内容与标题已加密，本设备已解锁",
+        StatusLocked: "已开启：本设备已锁定，同步时需要输入密码",
+        Enable: "开启加密",
+        Disable: "关闭加密",
+        Lock: "立即锁定",
+        LockedToast: "已锁定：内存中的密钥已丢弃",
+        SetTitle: "设置加密密码",
+        UnlockTitle: "输入加密密码",
+        UnlockTip: "云端数据是加密的，需要输入密码才能解密。",
+        SetTip:
+          "密码只在本机用于派生密钥，不会上传。忘记密码将无法恢复云端数据。\n" +
+          "开启后会把现有数据全量重传一次（内容加密为密文）。",
+        Password: "加密密码",
+        PasswordConfirm: "再输入一次",
+        Remember: "在此设备记住（不用每次输入，但本机被拿到就等于明文）",
+        EmptyPassword: "密码不能为空",
+        PasswordMismatch: "两次输入的密码不一致",
+        WrongPassword: "密码不正确，无法解密云端的备份",
+        Locked: "需要密码才能继续（已取消）",
+        Unsupported:
+          "当前环境不支持 WebCrypto（需要 HTTPS 或 localhost），无法加密",
+        Enabled: "已开启加密，正在全量重传…",
+        Failed: "开启加密失败",
+        DisableConfirm:
+          "关闭后会以明文重新上传全部数据，并丢弃本机记住的密码。云端旧密文会被覆盖（但 Upstash 的历史快照里可能仍有密文残留）。继续吗？",
+      },
+
       Config: {
         Modal: {
           Title: "配置云同步",

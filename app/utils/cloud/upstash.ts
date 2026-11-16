@@ -776,7 +776,17 @@ export function createUpstashClient(
     async upload(
       state: any,
       onProgress?: (done: number, total: number) => void,
-      options?: { forceFull?: boolean },
+      options?: {
+        forceFull?: boolean;
+        /**
+         * 会话 → 云端形态的转换（加密时用）。
+         * 返回「要上传的 JSON」和「用来做增量比对的哈希」——
+         * 加密后 JSON 每次都不一样（随机 IV），所以哈希必须来自明文。
+         */
+        prepare?: (session: any) => Promise<{ json: string; hash: string }>;
+        /** 写进索引的额外元信息（比如加密参数） */
+        extraIndex?: Record<string, any>;
+      },
     ): Promise<{ uploaded: number; skipped: number; total: number }> {
       const startedAt = Date.now();
       const chat = state[StoreKey.Chat] ?? {};
@@ -828,8 +838,17 @@ export function createUpstashClient(
       }> = [];
       for (const session of sessions) {
         throwIfAborted();
-        const json = JSON.stringify(session);
-        localSessions.push({ session, json, hash: hashString(json) });
+        let json: string;
+        let hash: string;
+        if (options?.prepare) {
+          const encoded = await options.prepare(session);
+          json = encoded.json;
+          hash = encoded.hash;
+        } else {
+          json = JSON.stringify(session);
+          hash = hashString(json);
+        }
+        localSessions.push({ session, json, hash });
         onProgress?.(++prepared, considered);
         await yieldIfNeeded();
       }
@@ -1031,7 +1050,12 @@ export function createUpstashClient(
         sessions: sessionItems,
         stores: storeItems,
         compress,
+        ...(options?.extraIndex ?? {}),
       };
+      // extraIndex 里传 undefined 表示删掉该字段（例如关闭加密）
+      Object.keys(index).forEach((key) => {
+        if ((index as any)[key] === undefined) delete (index as any)[key];
+      });
       const indexBytes = JSON.stringify(index);
       const indexSetStartedAt = Date.now();
       await this.redisSet(indexKey, indexBytes);
@@ -1096,10 +1120,30 @@ export function createUpstashClient(
     async download(
       localState?: any,
       onProgress?: (done: number, total: number) => void,
-      options?: { forceFull?: boolean },
+      options?: {
+        forceFull?: boolean;
+        /** 会话 JSON → 明文 JSON（加密时解密）；抛错代表解密失败 */
+        decode?: (json: string) => Promise<string>;
+        /** 会话 JSON → 增量哈希（加密时用 HMAC，必须和上传时一致） */
+        hashSession?: (json: string) => Promise<string>;
+      },
     ) {
       const startedAt = Date.now();
       const forceFull = options?.forceFull === true;
+
+      /**
+       * 读出来的 payload → 会话对象。
+       * 解密失败要往上抛（不能当成“解析失败”跳过），否则密码错了会静默丢会话。
+       */
+      const decodeSession = async (raw: string, gz?: boolean) => {
+        const json = await decodePayload(raw, gz);
+        if (!options?.decode) return JSON.parse(json);
+        try {
+          return JSON.parse(await options.decode(json));
+        } catch (e) {
+          throw new Error(`DECRYPT_FAILED ${e}`);
+        }
+      };
 
       // 索引请求先发出去，等它的时候顺带把本地哈希算完
       // （取消时同样不能留下未处理的 rejection，见 upload 里的说明）
@@ -1128,8 +1172,13 @@ export function createUpstashClient(
       };
 
       for (const session of localList) {
+        const json = JSON.stringify(session);
         localHashes.set(session.id, {
-          hash: hashString(JSON.stringify(session)),
+          // 开了加密时，云端记的是明文 MAC，这里必须用同一种算法，
+          // 否则“本地没改”的会话也会被判成不同、每次下载都全量拉
+          hash: options?.hashSession
+            ? await options.hashSession(json)
+            : hashString(json),
           item: session,
         });
         onProgress?.(++scanned, localList.length);
@@ -1198,11 +1247,11 @@ export function createUpstashClient(
                 }
                 if (typeof raw !== "string") return;
                 try {
-                  sessionsById.set(
-                    item.id,
-                    JSON.parse(await decodePayload(raw, item.gz)),
-                  );
-                } catch (e) {
+                  sessionsById.set(item.id, await decodeSession(raw, item.gz));
+                } catch (e: any) {
+                  if (String(e?.message ?? "").startsWith("DECRYPT_FAILED")) {
+                    throw e;
+                  }
                   console.warn("[Upstash] failed to parse session", item.id);
                 }
               }),
@@ -1227,11 +1276,11 @@ export function createUpstashClient(
                 return;
               }
               try {
-                sessionsById.set(
-                  item.id,
-                  JSON.parse(await decodePayload(raw, item.gz)),
-                );
-              } catch (e) {
+                sessionsById.set(item.id, await decodeSession(raw, item.gz));
+              } catch (e: any) {
+                if (String(e?.message ?? "").startsWith("DECRYPT_FAILED")) {
+                  throw e;
+                }
                 console.warn("[Upstash] failed to parse session", item.id);
               }
               readDone += 1;
@@ -1327,6 +1376,22 @@ export function createUpstashClient(
         return JSON.parse(raw);
       } catch (e) {
         console.error("[Upstash] download parse failed", e);
+        return null;
+      }
+    },
+
+    /**
+     * 只读索引里的小部分元信息（加密参数）。
+     * 下载 / 同步前要先知道云端是不是加密的、用什么 salt，
+     * 才能派生密钥并解密。
+     */
+    async readIndexMeta(): Promise<{ enc?: any } | null> {
+      const raw = await this.redisGet(indexKey).catch(() => null);
+      if (!raw) return null;
+      try {
+        const index = JSON.parse(raw);
+        return { enc: index?.enc ?? undefined };
+      } catch {
         return null;
       }
     },

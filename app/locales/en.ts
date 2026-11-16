@@ -368,6 +368,40 @@ const en: LocaleType = {
         Confirm: "Merge with these choices",
       },
 
+      Encryption: {
+        Title: "Encrypt cloud content",
+        StatusOff: "Off: message contents and titles are stored in plaintext",
+        StatusOn:
+          "On: contents and titles are encrypted, unlocked on this device",
+        StatusLocked: "On: locked on this device, password required to sync",
+        Enable: "Enable",
+        Disable: "Disable",
+        Lock: "Lock now",
+        LockedToast: "Locked: the key in memory has been dropped",
+        SetTitle: "Set an encryption password",
+        UnlockTitle: "Enter encryption password",
+        UnlockTip:
+          "The cloud backup is encrypted — the password is required to decrypt it.",
+        SetTip:
+          "The password never leaves this device — it only derives the key locally. " +
+          "If you forget it, the cloud data cannot be recovered.\n" +
+          "Enabling will re-upload everything once (contents become ciphertext).",
+        Password: "Encryption password",
+        PasswordConfirm: "Repeat password",
+        Remember:
+          "Remember on this device (no prompt each time, but anyone with this device gets plaintext)",
+        EmptyPassword: "Password cannot be empty",
+        PasswordMismatch: "The two passwords do not match",
+        WrongPassword: "Wrong password — cannot decrypt the cloud backup",
+        Locked: "Password required to continue (canceled)",
+        Unsupported:
+          "WebCrypto is unavailable here (HTTPS or localhost required), cannot encrypt",
+        Enabled: "Encryption enabled, re-uploading everything…",
+        Failed: "Failed to enable encryption",
+        DisableConfirm:
+          "Disabling re-uploads everything in plaintext and drops the remembered key. Old ciphertext will be overwritten (Upstash snapshots may still contain it). Continue?",
+      },
+
       Config: {
         Modal: {
           Title: "Config Sync",
