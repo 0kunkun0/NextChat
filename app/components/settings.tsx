@@ -1259,6 +1259,9 @@ export function Settings() {
   const setLowMemory = useLowMemoryStore((state) => state.setEnabled);
   const debugLogEnabled = useDebugLogStore((state) => state.enabled);
   const setDebugLogEnabled = useDebugLogStore((state) => state.setEnabled);
+  const debugLogIncludeContent = useDebugLogStore(
+    (state) => state.includeContent,
+  );
   const [showDebugLog, setShowDebugLog] = useState(false);
 
   // 观察用的堆占用（只有 Chrome 系浏览器提供 performance.memory）
@@ -2301,6 +2304,22 @@ export function Settings() {
               aria-label={Locale.Settings.DebugLog.Toggle.Title}
               checked={debugLogEnabled}
               onChange={(e) => setDebugLogEnabled(e.currentTarget.checked)}
+            ></input>
+          </ListItem>
+
+          <ListItem
+            title={Locale.Settings.DebugLog.IncludeContent.Title}
+            subTitle={Locale.Settings.DebugLog.IncludeContent.SubTitle}
+          >
+            <input
+              type="checkbox"
+              aria-label={Locale.Settings.DebugLog.IncludeContent.Title}
+              checked={debugLogIncludeContent}
+              onChange={(e) => {
+                useDebugLogStore
+                  .getState()
+                  .setIncludeContent(e.currentTarget.checked);
+              }}
             ></input>
           </ListItem>
 

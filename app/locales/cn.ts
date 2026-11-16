@@ -271,6 +271,11 @@ const cn = {
         SubTitle:
           "把 console 输出保存到本地（压缩存储，上限 10MB，超出后丢弃最早的日志）",
       },
+      IncludeContent: {
+        Title: "日志包含对话内容",
+        SubTitle:
+          "默认关闭：内容只保留前 10 个字符。打开后会记录完整内容（仍受单条长度限制）",
+      },
       View: "查看调试日志",
       Refresh: "刷新",
       Clear: "清空",

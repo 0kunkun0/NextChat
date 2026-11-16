@@ -256,6 +256,36 @@ describe("upstash incremental upload", () => {
     expect(server.writes).toEqual([]);
   });
 
+  test("lastInput（输入框草稿）不会写进云端索引", async () => {
+    const server = installFakeUpstash();
+    const state = makeState();
+    (state[StoreKey.Chat] as any).lastInput = "这是还没发出去的草稿";
+
+    await client.upload(state);
+
+    // 索引是明文存储的：草稿绝对不能出现在里面
+    const rawIndex = server.kv.get("backup-v2-index")!;
+    expect(rawIndex).not.toContain("这是还没发出去的草稿");
+    expect(readIndex(server).chat.lastInput).toBeUndefined();
+  });
+
+  test("老索引里残留的 lastInput 下载时会被忽略", async () => {
+    const server = installFakeUpstash();
+    await client.upload(makeState());
+
+    // 手动把 lastInput 塞回索引，模拟旧版本写下的数据
+    const index = readIndex(server);
+    index.chat = { ...index.chat, lastInput: "旧版本留下的草稿" };
+    server.kv.set("backup-v2-index", JSON.stringify(index));
+
+    const local = makeState();
+    (local[StoreKey.Chat] as any).lastInput = "本地草稿";
+
+    const restored = await client.download(local);
+    // 远端草稿不会被带回来（本地的也不该被清空，这里只验证不覆盖）
+    expect((restored as any)[StoreKey.Chat].lastInput).toBeUndefined();
+  });
+
   test("uploading unchanged state writes nothing", async () => {
     const server = installFakeUpstash();
     await client.upload(makeState());

@@ -274,6 +274,11 @@ const en: LocaleType = {
         SubTitle:
           "Save console output locally (gzip compressed, capped at 10MB, oldest logs dropped)",
       },
+      IncludeContent: {
+        Title: "Include chat content in logs",
+        SubTitle:
+          "Off by default: long text keeps only the first 10 characters. Turn on to record full content (still capped per entry)",
+      },
       View: "View debug logs",
       Refresh: "Refresh",
       Clear: "Clear",

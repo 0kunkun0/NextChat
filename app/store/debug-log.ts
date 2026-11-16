@@ -38,8 +38,40 @@ const PREVIEW_CHARS = 10;
 /** 超过这个长度才截断（短字符串原样保留，否则错误信息都没法看） */
 const PREVIEW_THRESHOLD = 80;
 
-/** 把长文本压成 `前10个字符…(+剩余字数)` */
+/**
+ * 是否在日志里保留完整对话内容（默认关闭）。
+ *
+ * 关闭时：长文本只留前 10 个字符，日志里看不到聊天内容（推荐）。
+ * 打开时：内容原样写入（仍受 MAX_ENTRY_CHARS 限制），用于排查需要看原文的问题。
+ */
+const INCLUDE_CONTENT_KEY = "debug-log-include-content";
+let includeContent = false;
+
+function readIncludeContent(): boolean {
+  try {
+    return window.localStorage.getItem(INCLUDE_CONTENT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** 设置并持久化「日志包含对话内容」开关 */
+export function setIncludeContent(value: boolean) {
+  includeContent = value;
+  try {
+    window.localStorage.setItem(INCLUDE_CONTENT_KEY, value ? "1" : "0");
+  } catch {
+    // 隐私模式写不进去，当前会话内生效即可
+  }
+}
+
+export function getIncludeContent(): boolean {
+  return includeContent;
+}
+
+/** 把长文本压成 `前10个字符…(+剩余字数)`；开关打开时原样返回 */
 export function previewText(value: string): string {
+  if (includeContent) return value;
   if (value.length <= PREVIEW_THRESHOLD) return value;
   return `${value.slice(0, PREVIEW_CHARS)}…(+${value.length - PREVIEW_CHARS})`;
 }
@@ -396,13 +428,17 @@ export async function clearLogs() {
 
 type DebugLogState = {
   enabled: boolean;
+  /** 日志里是否保留完整对话内容（默认关闭） */
+  includeContent: boolean;
   setEnabled: (enabled: boolean) => void;
+  setIncludeContent: (includeContent: boolean) => void;
   /** App 启动时调用：把上次打开过的状态恢复回来 */
   init: () => void;
 };
 
 export const useDebugLogStore = create<DebugLogState>((set, get) => ({
   enabled: typeof window === "undefined" ? false : readEnabled(),
+  includeContent: typeof window === "undefined" ? false : readIncludeContent(),
 
   setEnabled(enabled: boolean) {
     writeEnabled(enabled);
@@ -416,8 +452,19 @@ export const useDebugLogStore = create<DebugLogState>((set, get) => ({
     }
   },
 
+  setIncludeContent(value: boolean) {
+    setIncludeContent(value);
+    set({ includeContent: value });
+  },
+
   init() {
     installFlushOnHide();
+    // 把持久化的「日志包含对话内容」开关同步到模块级标记（previewText 用它）
+    if (typeof window !== "undefined") {
+      const value = readIncludeContent();
+      includeContent = value;
+      if (get().includeContent !== value) set({ includeContent: value });
+    }
     if (get().enabled) {
       installConsoleHook();
       installErrorHook();

@@ -806,6 +806,12 @@ export function createUpstashClient(
         ? allSessions.filter((session: any) => onlyIds.has(session.id))
         : allSessions;
       const { sessions: _sessions, ...chatMeta } = chat;
+      /**
+       * lastInput 是输入框里的草稿，属于对话内容。
+       * 索引 index 是**明文存储**的（加密也不覆盖它），
+       * 所以这里直接把它剔掉，绝不写进云端索引。
+       */
+      delete (chatMeta as any).lastInput;
       const storeNames = [
         StoreKey.Access,
         StoreKey.Config,
@@ -1381,8 +1387,13 @@ export function createUpstashClient(
               direct: preferDirect && !forceProxy,
             },
           );
+          // 老索引里可能还留着 lastInput（草稿）：读的时候忽略，
+          // 让本地输入框保持原样
+          const remoteChatMeta: any = { ...index.chat };
+          delete remoteChatMeta.lastInput;
+
           return {
-            [StoreKey.Chat]: { ...index.chat, sessions },
+            [StoreKey.Chat]: { ...remoteChatMeta, sessions },
             ...stores,
           };
         } catch (e) {

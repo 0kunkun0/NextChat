@@ -2,6 +2,8 @@ import {
   getPendingLogs,
   installConsoleHook,
   installErrorHook,
+  previewText,
+  setIncludeContent,
   uninstallConsoleHook,
   uninstallErrorHook,
   useDebugLogStore,
@@ -73,6 +75,25 @@ describe("debug log console hook", () => {
     useDebugLogStore.getState().setEnabled(false);
     expect(useDebugLogStore.getState().enabled).toBe(false);
     expect(console.log).toBe(base);
+  });
+
+  test("previewText 受「日志包含对话内容」开关控制", () => {
+    const long = "a".repeat(200);
+
+    // 默认关闭：只留前 10 个字符
+    setIncludeContent(false);
+    expect(previewText(long)).toBe(`aaaaaaaaaa…(+190)`);
+    // 短文本不受影响
+    expect(previewText("short")).toBe("short");
+
+    // 打开后原样保留
+    setIncludeContent(true);
+    expect(previewText(long)).toBe(long);
+    expect(previewText(long)).toHaveLength(200);
+
+    // 关掉恢复截断
+    setIncludeContent(false);
+    expect(previewText(long)).toContain("…(+190)");
   });
 
   test("long message content is truncated to a short preview", () => {
