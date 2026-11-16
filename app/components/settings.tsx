@@ -984,16 +984,17 @@ function SyncItems() {
         saveRememberedKey({ material, params });
       }
       syncStore.setEncryption({ enabled: true, unlocked: true });
+      // 不自动上传：多台设备都开启加密时，每台都会把自己的（可能过时的）
+      // 内容传一遍，最后上传的那台覆盖前面的。交给用户在“数据正确”的
+      // 那台设备上手点「全量上传」。
       showToast(Locale.Settings.Sync.Encryption.Enabled);
-      // 必须全量：云端现有的是明文
-      await runUpload(true);
     } catch (e) {
       console.error("[Encryption] enable failed", e);
       showToast(Locale.Settings.Sync.Encryption.Failed);
     }
   };
 
-  /** 关闭加密：全量重传明文（旧密文会被覆盖） */
+  /** 关闭加密：只改本地状态，同样由用户手动全量上传一次 */
   const disableEncryption = async () => {
     if (!(await showConfirm(Locale.Settings.Sync.Encryption.DisableConfirm))) {
       return;
@@ -1002,7 +1003,7 @@ function SyncItems() {
     syncStore.setEncryption({ enabled: false, unlocked: false });
     lockKey();
     clearRememberedKey();
-    await runUpload(true, { dropEncryption: true });
+    showToast(Locale.Settings.Sync.Encryption.Disabled);
   };
 
   /** 清空当前用户名下的云端备份（成功返回 true，调用方随后会全量上传） */

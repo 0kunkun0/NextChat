@@ -335,6 +335,7 @@ const cn = {
           `${kind} · ${sessions} 个会话 · ${kb} KB`,
         Create: "立即备份",
         Swap: "交换",
+        Working: "备份中…",
         CreateDone: (sessions: number) =>
           `已备份当前 ${sessions} 个会话（不会自动删除）`,
         SwapConfirm:
@@ -342,6 +343,7 @@ const cn = {
         SwapDone: "已交换：当前内容已存到备份列表最前面，再点一次换回来",
         Missing: "没有可用的备份",
         Failed: "本地备份操作失败",
+        FailedWithReason: (reason: string) => `本地备份失败：${reason}`,
       },
 
       Sync: "同步",
@@ -387,7 +389,10 @@ const cn = {
         Locked: "需要密码才能继续（已取消）",
         Unsupported:
           "当前环境不支持 WebCrypto（需要 HTTPS 或 localhost），无法加密",
-        Enabled: "已开启加密，正在全量重传…",
+        Enabled:
+          "已开启加密。云端仍是明文，请在一个数据正确的设备上手动点「全量上传」完成转换。",
+        Disabled:
+          "已关闭加密。请在一个数据正确的设备上手动点「全量上传」，把云端改回明文。",
         Failed: "开启加密失败",
         DisableConfirm:
           "关闭后会以明文重新上传全部数据，并丢弃本机记住的密码。云端旧密文会被覆盖（但 Upstash 的历史快照里可能仍有密文残留）。继续吗？",

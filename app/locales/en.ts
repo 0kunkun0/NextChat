@@ -341,12 +341,14 @@ const en: LocaleType = {
         Swap: "Swap",
         CreateDone: (sessions: number) =>
           `Backed up ${sessions} session(s) — backups are never deleted automatically`,
+        Working: "Backing up…",
         SwapConfirm:
           "Chats, prompts and masks will be swapped with this backup (your current content is saved as a new backup). Settings such as API keys are untouched. Continue?",
         SwapDone:
           "Swapped — your previous content is now the newest backup entry",
         Missing: "No usable backup",
         Failed: "Local backup failed",
+        FailedWithReason: (reason: string) => `Local backup failed: ${reason}`,
       },
 
       Sync: "Sync",
@@ -396,7 +398,10 @@ const en: LocaleType = {
         Locked: "Password required to continue (canceled)",
         Unsupported:
           "WebCrypto is unavailable here (HTTPS or localhost required), cannot encrypt",
-        Enabled: "Encryption enabled, re-uploading everything…",
+        Enabled:
+          "Encryption enabled. The cloud is still plaintext — run “Full upload” on the device holding the correct data to convert it.",
+        Disabled:
+          "Encryption disabled. Run “Full upload” on the device holding the correct data to write plaintext back to the cloud.",
         Failed: "Failed to enable encryption",
         DisableConfirm:
           "Disabling re-uploads everything in plaintext and drops the remembered key. Old ciphertext will be overwritten (Upstash snapshots may still contain it). Continue?",

@@ -30,6 +30,7 @@ export function LocalBackupSection(props: {
   const syncStore = useSyncStore();
   const limit = syncStore.backupLimit;
   const [backups, setBackups] = useState<BackupMeta[]>([]);
+  const [busy, setBusy] = useState(false);
 
   const refresh = async () => {
     setBackups(await listBackups());
@@ -53,14 +54,33 @@ export function LocalBackupSection(props: {
     return Locale.Settings.Sync.Backup.KindManual;
   };
 
+  /**
+   * 手动备份。
+   * 移动端写 IndexedDB 可能因为配额失败，绝不能静默失败——
+   * 失败必须弹提示，否则表现就是“点了没反应”。
+   */
   const backupNow = async () => {
-    const record = await saveBackup(getLocalAppState(), "manual", limit);
-    await refresh();
-    showToast(
-      record
-        ? Locale.Settings.Sync.Backup.CreateDone(record.sessions)
-        : Locale.Settings.Sync.Backup.Failed,
-    );
+    if (busy) return;
+    setBusy(true);
+    showToast(Locale.Settings.Sync.Backup.Working);
+    try {
+      const record = await saveBackup(getLocalAppState(), "manual", limit);
+      await refresh();
+      showToast(
+        record
+          ? Locale.Settings.Sync.Backup.CreateDone(record.sessions)
+          : Locale.Settings.Sync.Backup.Failed,
+      );
+    } catch (e) {
+      console.error("[Backup] create failed", e);
+      showToast(
+        Locale.Settings.Sync.Backup.FailedWithReason(
+          (e as any)?.message ?? String(e),
+        ),
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
   const swap = async (id: string) => {
@@ -103,7 +123,12 @@ export function LocalBackupSection(props: {
         <div style={{ display: "flex" }}>
           <IconButton
             icon={<AddIcon />}
-            text={Locale.Settings.Sync.Backup.Create}
+            text={
+              busy
+                ? Locale.Settings.Sync.Backup.Working
+                : Locale.Settings.Sync.Backup.Create
+            }
+            disabled={busy}
             onClick={() => void backupNow()}
           />
         </div>

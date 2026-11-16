@@ -42,6 +42,34 @@ describe("local backup", () => {
     expect(a.id).not.toBe(b.id);
   });
 
+  test("内容以 gzip 存储，体积明显小于原始 JSON", () => {
+    const sessions = Array.from({ length: 50 }, (_, i) => ({
+      id: `s${i}`,
+      topic: "重复的标题",
+      messages: [{ id: `m${i}`, role: "user", content: "内容".repeat(200) }],
+    }));
+    const state = { [StoreKey.Chat]: { sessions } };
+
+    const record = buildBackupRecord(state as any);
+
+    expect(record.gz).toBe(true);
+    // 压缩后应该远小于原始 JSON（重复内容压缩率很高）
+    expect(record.bytes).toBeLessThan(JSON.stringify(state).length);
+    expect(parseBackup(record)).toEqual(state);
+  });
+
+  test("老的未压缩记录仍然能解析", () => {
+    const legacy = {
+      id: "old",
+      time: 1,
+      kind: "manual" as const,
+      sessions: 1,
+      bytes: 10,
+      state: JSON.stringify({ hello: "world" }),
+    };
+    expect(parseBackup(legacy as any)).toEqual({ hello: "world" });
+  });
+
   test("limit is clamped to [2, 32]", () => {
     expect(clampBackupLimit(1)).toBe(MIN_BACKUP_LIMIT);
     expect(clampBackupLimit(999)).toBe(MAX_BACKUP_LIMIT);
