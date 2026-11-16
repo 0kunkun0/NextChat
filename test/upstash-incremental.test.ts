@@ -1,7 +1,10 @@
 import { TextDecoder, TextEncoder } from "util";
 import { CompressionStream, DecompressionStream } from "stream/web";
 import { StoreKey } from "../app/constant";
-import { createUpstashClient } from "../app/utils/cloud/upstash";
+import {
+  createUpstashClient,
+  resolveChunkBytes,
+} from "../app/utils/cloud/upstash";
 
 // jsdom 没有这些 Web API，分片 / 压缩逻辑依赖它们
 if (typeof globalThis.TextEncoder === "undefined") {
@@ -448,44 +451,32 @@ describe("upstash incremental upload", () => {
     }
   });
 
-  test("chunk size is clamped to the Upstash 1MB value limit", async () => {
-    const savedCompression = (globalThis as any).CompressionStream;
-    const savedDecompression = (globalThis as any).DecompressionStream;
-    delete (globalThis as any).CompressionStream;
-    delete (globalThis as any).DecompressionStream;
-
-    try {
-      const server = installFakeUpstash();
-      // 1024KB = 1,048,576 字节，会超过限制；必须被夹到 1,000,000
-      const huge = createUpstashClient(makeSyncStore({ chunkSizeKB: 1024 }));
-      await huge.upload(makeState("word ".repeat(600_000)));
-
-      const chunks = Array.from(server.kv.entries()).filter(([k]) =>
-        k.startsWith("backup-v2-s-s1-c"),
-      );
-      expect(chunks.length).toBeGreaterThan(1);
-      for (const [, value] of chunks) {
-        expect(value.length).toBeLessThanOrEqual(1_000_000);
-      }
-    } finally {
-      (globalThis as any).CompressionStream = savedCompression;
-      (globalThis as any).DecompressionStream = savedDecompression;
-    }
+  test("chunk size is clamped to the Upstash 10MB request limit", () => {
+    // 10240KB = 10MB，正好等于请求上限
+    expect(resolveChunkBytes(10240)).toBe(10 * 1000 * 1000);
+    // 超过上限一律夹回来
+    expect(resolveChunkBytes(20480)).toBe(10 * 1000 * 1000);
+    // 太小 / 非法值也要有兜底
+    expect(resolveChunkBytes(1)).toBe(16 * 1024);
+    expect(resolveChunkBytes(undefined)).toBe(1024 * 1024);
   });
 
   test("chunked is decided by bytes, not by character count", async () => {
-    // 中文 1 字符≈3 字节：40 万字符 ≈ 1.2MB，字符数没超 1e6 但字节数超了
+    // 中文 1 字符≈3 字节：40 万字符 ≈ 1.2MB 字节。
+    // 用 16KB 的分块大小做客户端，保证这条会话一定会被切片，
+    // 然后验证索引里记录的 chunked 和实际存储方式一致。
     const cjk = "中文内容".repeat(100_000);
     const server = installFakeUpstash();
+    const smallChunks = createUpstashClient(makeSyncStore({ chunkSizeKB: 16 }));
 
-    await client.upload(makeState(cjk));
+    await smallChunks.upload(makeState(cjk));
 
     const index = readIndex(server);
     // 索引必须如实记录“已经切片”，否则读端会去读根本不存在的单 key
     expect(index.sessions.find((s: any) => s.id === "s1").chunked).toBe(true);
     expect(server.writes).toContain("backup-v2-s-s1-n");
 
-    const restored = await client.download();
+    const restored = await smallChunks.download();
     expect(restored[StoreKey.Chat].sessions[0].messages[0].content).toBe(cjk);
   });
 

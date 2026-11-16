@@ -374,7 +374,7 @@ const cn = {
         ChunkSize: {
           Title: (size: number) => `分块大小：${size} KB`,
           SubTitle:
-            "单个会话超过这个大小就切片上传（16KB ~ 1024KB，仅影响上传；下载按索引自动拼接）",
+            "单个会话超过这个大小就切片上传（16KB ~ 10240KB，仅影响上传；下载按索引自动拼接）",
         },
 
         UpStash: {

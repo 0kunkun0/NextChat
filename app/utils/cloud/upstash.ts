@@ -15,24 +15,25 @@ const UPLOAD_CONCURRENCY = 6;
 /** 单个 value 超过这个字节数才切片（默认值；实际可在设置里调） */
 const CHUNK_BYTES = 1000 * 1000;
 /**
- * Upstash 单条记录上限 1MB，按字节算。
- * 设置里滑块最大是 1024KB（=1,048,576 字节），直接拿来用会超过上限，
- * 写大会话时就变成 413 被拒——所以这里必须再夹一次。
+ * Upstash 现在（2026）的限制是：单次请求最大 10MB、单条记录最大 100MB
+ * （免费版同样如此）。所以分片上限按 10MB 来，而不是老文档里的 1MB。
  */
-const MAX_CHUNK_BYTES = 1000 * 1000;
-/** 分片大小可选范围（KB）：16KB ~ 1024KB */
+const MAX_CHUNK_BYTES = 10 * 1000 * 1000;
+/** 分片大小可选范围（KB）：16KB ~ 10240KB（=10MB） */
 const MIN_CHUNK_KB = 16;
-const MAX_CHUNK_KB = 1024;
+const MAX_CHUNK_KB = 10240;
+/** 没有设置过（老版本持久化的 store）时用的默认值 */
+const DEFAULT_CHUNK_KB = 1024;
 /**
  * 单个 pipeline 请求里最多塞多少字符。
- * Upstash 单请求上限约 1MB，按 UTF-8 最坏 3 字节/字符算，25 万字符仍在上限内。
+ * 请求上限是 10MB，这里保守取 1MB，既明显减少请求数又不至于顶到上限。
  */
-const PIPELINE_MAX_CHARS = 250_000;
+const PIPELINE_MAX_CHARS = 1_000_000;
 /**
  * 压缩过的内容是 base64（纯 ASCII，1 字符≈1 字节），
- * 同样的 1MB 上限可以塞更多，请求数能少 3 倍左右。
+ * 同样的上限可以塞更多，请求数能少几倍。
  */
-const PIPELINE_MAX_CHARS_COMPRESSED = 800_000;
+const PIPELINE_MAX_CHARS_COMPRESSED = 1_000_000;
 /** 单个 pipeline 请求里最多塞多少条命令 */
 const PIPELINE_MAX_COMMANDS = 20;
 
@@ -295,6 +296,15 @@ let directUnavailable =
  */
 const DIRECT_TIMEOUT_MS = 2500;
 
+/** 分片大小（字节）：夹到 [16KB, 10MB]，并且不超过单次请求上限 */
+export function resolveChunkBytes(chunkSizeKB?: number): number {
+  const kb = Math.min(
+    MAX_CHUNK_KB,
+    Math.max(MIN_CHUNK_KB, Number(chunkSizeKB) || DEFAULT_CHUNK_KB),
+  );
+  return Math.min(kb * 1024, MAX_CHUNK_BYTES);
+}
+
 export function createUpstashClient(
   store: SyncStore,
   options?: { signal?: AbortSignal },
@@ -305,12 +315,8 @@ export function createUpstashClient(
   const signal = options?.signal;
 
   /** 上传时的分片大小（字节）：设置里可调，范围 16KB ~ 1024KB */
-  const chunkSizeKB = Math.min(
-    MAX_CHUNK_KB,
-    Math.max(MIN_CHUNK_KB, Number(config.chunkSizeKB) || MAX_CHUNK_KB),
-  );
-  // 滑块 1024KB 换算成字节会略超 Upstash 的 1MB 上限，这里再夹一次
-  const chunkBytes = Math.min(chunkSizeKB * 1024, MAX_CHUNK_BYTES);
+  const chunkBytes = resolveChunkBytes(config.chunkSizeKB);
+  const chunkSizeKB = Math.round(chunkBytes / 1024);
 
   /** 本次同步发出的 HTTP 请求数 / 上行字符数，用于排查“到底慢在哪” */
   let requestCount = 0;

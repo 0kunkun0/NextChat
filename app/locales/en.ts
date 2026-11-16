@@ -379,7 +379,7 @@ const en: LocaleType = {
         ChunkSize: {
           Title: (size: number) => `Chunk size: ${size} KB`,
           SubTitle:
-            "Sessions larger than this are uploaded in chunks (16KB ~ 1024KB, upload only; downloads always reassemble from the index)",
+            "Sessions larger than this are uploaded in chunks (16KB ~ 10240KB, upload only; downloads always reassemble from the index)",
         },
 
         UpStash: {
