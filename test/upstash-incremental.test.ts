@@ -36,7 +36,14 @@ function makeSyncStore(
 
 /** 伪造 Upstash REST 接口（get / set / pipeline），数据存在内存 Map 里 */
 function installFakeUpstash(
-  options: { failPipeline?: boolean; onWrite?: (key: string) => void } = {},
+  options: {
+    failPipeline?: boolean;
+    onWrite?: (key: string) => void;
+    /** 模拟写失败（例如单条超限的 413），返回 true 表示这次 SET 要失败 */
+    failWrite?: (key: string) => boolean;
+    /** 模拟读取失败 */
+    failGet?: (key: string) => boolean;
+  } = {},
 ) {
   const kv = new Map<string, string>();
   const writes: string[] = [];
@@ -98,10 +105,28 @@ function installFakeUpstash(
     }
 
     if (action === "set") {
+      if (options.failWrite?.(key)) {
+        return {
+          ok: false,
+          status: 413,
+          statusText: "Payload Too Large",
+          json: async () => ({}),
+          text: async () => "too large",
+        } as any;
+      }
       kv.set(key, String(init.body ?? ""));
       writes.push(key);
       options.onWrite?.(key);
     } else {
+      if (options.failGet?.(key)) {
+        return {
+          ok: false,
+          status: 500,
+          statusText: "Internal Server Error",
+          json: async () => ({}),
+          text: async () => "boom",
+        } as any;
+      }
       gets.push(key);
     }
 
@@ -393,6 +418,55 @@ describe("upstash incremental upload", () => {
       // 下载不依赖分片大小，照样能拼回原样
       const restored = await smallChunks.download();
       expect(restored[StoreKey.Chat].sessions[0].messages[0].content).toBe(big);
+    } finally {
+      (globalThis as any).CompressionStream = savedCompression;
+      (globalThis as any).DecompressionStream = savedDecompression;
+    }
+  });
+
+  test("a failed chunk write aborts the upload instead of silently writing the index", async () => {
+    const savedCompression = (globalThis as any).CompressionStream;
+    const savedDecompression = (globalThis as any).DecompressionStream;
+    delete (globalThis as any).CompressionStream;
+    delete (globalThis as any).DecompressionStream;
+
+    try {
+      // 第 3 个分片写入失败（模拟单条超过 1MB 的 413）
+      const server = installFakeUpstash({
+        failWrite: (key) => key.endsWith("-c2"),
+      });
+
+      await expect(
+        client.upload(makeState("word ".repeat(500_000))),
+      ).rejects.toThrow(/c2/);
+
+      // 索引绝对不能写：否则之后的增量会以为这个会话已经同步过了
+      expect(server.kv.has("backup-v2-index")).toBe(false);
+    } finally {
+      (globalThis as any).CompressionStream = savedCompression;
+      (globalThis as any).DecompressionStream = savedDecompression;
+    }
+  });
+
+  test("chunk size is clamped to the Upstash 1MB value limit", async () => {
+    const savedCompression = (globalThis as any).CompressionStream;
+    const savedDecompression = (globalThis as any).DecompressionStream;
+    delete (globalThis as any).CompressionStream;
+    delete (globalThis as any).DecompressionStream;
+
+    try {
+      const server = installFakeUpstash();
+      // 1024KB = 1,048,576 字节，会超过限制；必须被夹到 1,000,000
+      const huge = createUpstashClient(makeSyncStore({ chunkSizeKB: 1024 }));
+      await huge.upload(makeState("word ".repeat(600_000)));
+
+      const chunks = Array.from(server.kv.entries()).filter(([k]) =>
+        k.startsWith("backup-v2-s-s1-c"),
+      );
+      expect(chunks.length).toBeGreaterThan(1);
+      for (const [, value] of chunks) {
+        expect(value.length).toBeLessThanOrEqual(1_000_000);
+      }
     } finally {
       (globalThis as any).CompressionStream = savedCompression;
       (globalThis as any).DecompressionStream = savedDecompression;

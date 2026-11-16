@@ -91,9 +91,13 @@
 }
 
 /**
- * 窄屏：标题独占一行，操作按钮整块换到下一行并靠右。
+ * 窄屏：标题独占一行并保持左对齐，操作区整块换到下一行靠右。
  * 设置页里「云端数据」「全量同步」这类条目有 4~5 个带文字的按钮，
  * 一行放不下会顶出屏幕。
+ *
+ * 注意：`.list-header` 本身也是 div，下面的 `> div` 会连它一起命中，
+ * 所以要用优先级更高的 `> .list-header` 把 justify-content 改回左对齐，
+ * 否则短标题会被推到右边去。
  */
 @media screen and (max-width: 760px) {
   .list-item {
@@ -103,13 +107,15 @@
     > .list-header {
       flex: 1 1 100%;
       flex-wrap: wrap;
+      justify-content: flex-start;
     }
 
-    // 按钮组本身也允许换行（4~5 个带文字的按钮一行放不下）
+    // 按钮组：换行 + 靠右
     > div {
       flex-wrap: wrap;
       justify-content: flex-end;
       gap: 4px;
+      margin-left: auto;
     }
   }
 }

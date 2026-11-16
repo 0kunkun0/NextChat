@@ -14,7 +14,13 @@ export type UpStashClient = ReturnType<typeof createUpstashClient>;
 const UPLOAD_CONCURRENCY = 6;
 /** 单个 value 超过这个字节数才切片（默认值；实际可在设置里调） */
 const CHUNK_BYTES = 1000 * 1000;
-/** 分片大小可选范围（KB）：16KB ~ Upstash 单条记录上限 1MB */
+/**
+ * Upstash 单条记录上限 1MB，按字节算。
+ * 设置里滑块最大是 1024KB（=1,048,576 字节），直接拿来用会超过上限，
+ * 写大会话时就变成 413 被拒——所以这里必须再夹一次。
+ */
+const MAX_CHUNK_BYTES = 1000 * 1000;
+/** 分片大小可选范围（KB）：16KB ~ 1024KB */
 const MIN_CHUNK_KB = 16;
 const MAX_CHUNK_KB = 1024;
 /**
@@ -303,7 +309,8 @@ export function createUpstashClient(
     MAX_CHUNK_KB,
     Math.max(MIN_CHUNK_KB, Number(config.chunkSizeKB) || MAX_CHUNK_KB),
   );
-  const chunkBytes = chunkSizeKB * 1024;
+  // 滑块 1024KB 换算成字节会略超 Upstash 的 1MB 上限，这里再夹一次
+  const chunkBytes = Math.min(chunkSizeKB * 1024, MAX_CHUNK_BYTES);
 
   /** 本次同步发出的 HTTP 请求数 / 上行字符数，用于排查“到底慢在哪” */
   let requestCount = 0;
@@ -394,19 +401,39 @@ export function createUpstashClient(
     // 避免取消时把某个大会话写成“半新半旧”的损坏状态。
     // 取消会在下一个项目/批次开始前生效。
     async redisSet(key: string, value: string) {
-      const res = await this.request({
-        path: `set/${key}`,
-        action: "set",
-        key,
-        method: "POST",
-        headers: this.headers(),
-        body: value,
-      });
+      const send = async () => {
+        const res = await this.request({
+          path: `set/${key}`,
+          action: "set",
+          key,
+          method: "POST",
+          headers: this.headers(),
+          body: value,
+        });
 
-      console.log("[Upstash] set key = ", key, res.status, res.statusText);
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Upstash set failed: ${res.status} ${text}`);
+        console.log("[Upstash] set key = ", key, res.status, res.statusText);
+        if (res.ok) return;
+
+        const text = await res.text().catch(() => "");
+        const error: any = new Error(
+          `Upstash set failed (${key}): ${res.status} ${text}`,
+        );
+        error.status = res.status;
+        throw error;
+      };
+
+      try {
+        await send();
+      } catch (e: any) {
+        // 用户取消 / 4xx（单条超限 413、鉴权失败等）重试没有意义
+        if (
+          isAbortError(e) ||
+          (typeof e?.status === "number" && e.status < 500)
+        ) {
+          throw e;
+        }
+        console.warn("[Upstash] set failed, retry once:", key, e?.message ?? e);
+        await send();
       }
     },
 
@@ -686,6 +713,15 @@ export function createUpstashClient(
       await this.redisSet(`${key}-n`, String(parts.length));
       chunkKeysWritten += parts.length + 1;
 
+      // 写完核对分片数：任何一个分片没写成功，这里会立刻报错，
+      // 而不是写进索引、让之后的增量误以为「已经同步过了」
+      const written = Number(await this.redisGet(`${key}-n`));
+      if (written !== parts.length) {
+        throw new Error(
+          `Upstash chunk write incomplete: ${key} ${written}/${parts.length}`,
+        );
+      }
+
       // 新的分片比旧的少：把越界的旧分片删掉
       if (previousCount > parts.length) {
         await this.dropChunks(key, parts.length, previousCount);
@@ -941,7 +977,17 @@ export function createUpstashClient(
           const entry = big[cursor++];
           // 用实际写入结果回填 chunked：中文按字符数判断会错，
           // 索引说“没切片”但实际写成了分片，读端就永远读不到最新内容
-          entry.item.chunked = await this.writeValue(entry.key, entry.payload);
+          try {
+            entry.item.chunked = await this.writeValue(
+              entry.key,
+              entry.payload,
+            );
+          } catch (e: any) {
+            // 带上 key，日志里能看出是哪个会话卡住了（否则只有一句“上传失败”）
+            throw new Error(
+              `[Upstash] failed to upload ${entry.key}: ${e?.message ?? e}`,
+            );
+          }
           done += 1;
           reportWrite();
         }
