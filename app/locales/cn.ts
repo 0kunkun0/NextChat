@@ -321,25 +321,46 @@ const cn = {
       },
 
       Backup: {
-        ManualTitle: "本地备份（手动）",
-        ManualInfo: (time: string, sessions: number) =>
-          time
-            ? `上次手动备份：${time}，共 ${sessions} 个会话`
-            : "还没有手动备份",
-        AutoTitle: "本地备份（下载前自动）",
-        AutoInfo: (time: string, sessions: number) =>
-          time
-            ? `上次下载前自动备份：${time}，共 ${sessions} 个会话`
-            : "还没有自动备份（每次下载前会自动存一份）",
+        Title: (limit: number, count: number) =>
+          `本地备份（${count}/${limit} 份）`,
+        SubTitle:
+          "下载 / 同步前会自动存一份；交换是双向的，点错了再点一次就能换回来",
+        LimitTitle: (limit: number) => `最多保留 ${limit} 份`,
+        LimitSubTitle: (min: number, max: number) =>
+          `可调 ${min} ~ ${max} 份，超出后自动删除最早的一份`,
+        KindManual: "手动备份",
+        KindAuto: "自动备份",
+        KindSwap: "交换产生",
+        ItemInfo: (kind: string, sessions: number, kb: number) =>
+          `${kind} · ${sessions} 个会话 · ${kb} KB`,
         Create: "立即备份",
         Swap: "交换",
         CreateDone: (sessions: number) =>
           `已备份当前 ${sessions} 个会话（不会自动删除）`,
         SwapConfirm:
-          "将用备份里的聊天记录、提示词和面具与当前内容交换（当前内容会存进同一个备份槽位）。API Key 等设置不受影响。继续吗？",
-        SwapDone: "已交换：当前内容已存入备份，可再点一次换回来",
+          "将用这份备份里的聊天记录、提示词和面具与当前内容交换（当前内容会存成新的一份备份）。API Key 等设置不受影响。继续吗？",
+        SwapDone: "已交换：当前内容已存到备份列表最前面，再点一次换回来",
         Missing: "没有可用的备份",
         Failed: "本地备份操作失败",
+      },
+
+      Sync: "同步",
+      Syncing: "同步中",
+      SyncFailed: "同步失败",
+      SyncDone: (fromRemote: number, toRemote: number, conflicts: number) =>
+        `同步完成：云端新增/更新 ${fromRemote} 个，本地上传 ${toRemote} 个${
+          conflicts > 0 ? `，手动解决冲突 ${conflicts} 个` : ""
+        }`,
+
+      Conflict: {
+        Title: (count: number) => `有 ${count} 个会话冲突，请选择保留哪一份`,
+        Tip: "这些会话在本地和云端都被修改过。点一侧选中，默认保留本地。",
+        Local: "本地",
+        Remote: "云端",
+        MessageCount: (count: number) => `${count} 条消息`,
+        AllLocal: "全部用本地",
+        AllRemote: "全部用云端",
+        Confirm: "按以上选择合并",
       },
 
       Config: {

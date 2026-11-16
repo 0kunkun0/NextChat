@@ -1,5 +1,6 @@
 import { ApiPath, STORAGE_KEY, StoreKey } from "../constant";
 import { createPersistStore } from "../utils/store";
+import { clampBackupLimit } from "../utils/backup";
 import {
   AppState,
   getLocalAppState,
@@ -62,6 +63,15 @@ const DEFAULT_SYNC_STATE = {
   // 上传 / 下载分别记录时间（原版只有一个「同步」按钮，靠 lastSyncTime 记录）
   lastUploadTime: 0,
   lastDownloadTime: 0,
+
+  /** 本地最多保留多少份备份（2 ~ 32，超出删最早的） */
+  backupLimit: 5,
+  /**
+   * 上次同步成功时每个会话的哈希（sessionId -> hash）。
+   * 只存本机，用来判断「这一轮到底是本地改过还是云端改过」。
+   * 没有它就没法区分“两边都改”和“只有一边改”。
+   */
+  lastSyncedHashes: {} as Record<string, string>,
 };
 
 export const useSyncStore = createPersistStore(
@@ -82,6 +92,15 @@ export const useSyncStore = createPersistStore(
 
     markDownloadTime() {
       set({ lastDownloadTime: Date.now() });
+    },
+
+    /** 记录同步基线：上传 / 下载 / 同步成功后都要刷新一遍 */
+    markSynced(hashes: Record<string, string>) {
+      set({ lastSyncedHashes: hashes ?? {} });
+    },
+
+    setBackupLimit(limit: number) {
+      set({ backupLimit: clampBackupLimit(limit) });
     },
 
     export() {

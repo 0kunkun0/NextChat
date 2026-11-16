@@ -325,25 +325,47 @@ const en: LocaleType = {
       },
 
       Backup: {
-        ManualTitle: "Local backup (manual)",
-        ManualInfo: (time: string, sessions: number) =>
-          time
-            ? `Last manual backup: ${time}, ${sessions} session(s)`
-            : "No manual backup yet",
-        AutoTitle: "Local backup (before download)",
-        AutoInfo: (time: string, sessions: number) =>
-          time
-            ? `Last auto backup: ${time}, ${sessions} session(s)`
-            : "No auto backup yet (one is saved before every download)",
+        Title: (limit: number, count: number) =>
+          `Local backups (${count}/${limit})`,
+        SubTitle:
+          "One is saved automatically before download / sync; swapping is two-way, so clicking again swaps back",
+        LimitTitle: (limit: number) => `Keep up to ${limit}`,
+        LimitSubTitle: (min: number, max: number) =>
+          `Adjustable ${min} ~ ${max}; the oldest one is dropped when exceeded`,
+        KindManual: "Manual",
+        KindAuto: "Automatic",
+        KindSwap: "Swapped",
+        ItemInfo: (kind: string, sessions: number, kb: number) =>
+          `${kind} · ${sessions} session(s) · ${kb} KB`,
         Create: "Back up now",
         Swap: "Swap",
         CreateDone: (sessions: number) =>
           `Backed up ${sessions} session(s) — backups are never deleted automatically`,
         SwapConfirm:
-          "Chats, prompts and masks will be swapped with the backup (your current content moves into the same backup slot). Settings such as API keys are untouched. Continue?",
-        SwapDone: "Swapped — your previous content is in the backup slot now",
+          "Chats, prompts and masks will be swapped with this backup (your current content is saved as a new backup). Settings such as API keys are untouched. Continue?",
+        SwapDone:
+          "Swapped — your previous content is now the newest backup entry",
         Missing: "No usable backup",
         Failed: "Local backup failed",
+      },
+
+      Sync: "Sync",
+      Syncing: "Syncing",
+      SyncFailed: "Sync failed",
+      SyncDone: (fromRemote: number, toRemote: number, conflicts: number) =>
+        `Synced: ${fromRemote} taken from cloud, ${toRemote} pushed from this device${
+          conflicts > 0 ? `, ${conflicts} conflict(s) resolved manually` : ""
+        }`,
+
+      Conflict: {
+        Title: (count: number) => `${count} conflicting session(s) — pick one`,
+        Tip: "These sessions were changed both locally and in the cloud. Click a side to choose; local is kept by default.",
+        Local: "Local",
+        Remote: "Cloud",
+        MessageCount: (count: number) => `${count} message(s)`,
+        AllLocal: "All local",
+        AllRemote: "All cloud",
+        Confirm: "Merge with these choices",
       },
 
       Config: {

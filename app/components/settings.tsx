@@ -96,13 +96,16 @@ import { TTSConfigList } from "./tts-config";
 import { RealtimeConfigList } from "./realtime-chat/realtime-config";
 import { createUpstashClient, isAbortError } from "../utils/cloud/upstash";
 import { getLocalAppState, setLocalAppState } from "../utils/sync";
+import { saveBackup } from "../utils/backup";
+import { LocalBackupSection } from "./local-backup";
+import { SyncConflictModal } from "./sync-conflict";
 import {
-  loadBackup,
-  loadBackupInfo,
-  parseBackup,
-  saveBackup,
-  type BackupSlot,
-} from "../utils/backup";
+  buildSyncedHashes,
+  mergeByChoices,
+  planSync,
+  type ConflictChoice,
+  type SyncConflict,
+} from "../utils/sync-merge";
 import dynamic from "next/dynamic";
 
 // 调试日志查看器：单独打成一个 chunk，点开才加载
@@ -624,63 +627,19 @@ function SyncItems() {
   } | null>(null);
   // 正在进行的同步任务：点错了可以立刻取消
   const [syncJob, setSyncJob] = useState<{
-    type: "upload" | "download";
+    type: "upload" | "download" | "sync";
     controller: AbortController;
   } | null>(null);
 
-  // 本地备份的元信息（时间 / 会话数），只用于展示
-  const [backupInfo, setBackupInfo] = useState<
-    Awaited<ReturnType<typeof loadBackupInfo>>
-  >({ auto: null, manual: null });
+  /** 备份列表被别处改动时需要刷新，用来触发 LocalBackupSection 重读 */
+  const [backupRefreshKey, setBackupRefreshKey] = useState(0);
+  const refreshBackups = () => setBackupRefreshKey((n) => n + 1);
 
-  const refreshBackupInfo = async () => {
-    try {
-      setBackupInfo(await loadBackupInfo());
-    } catch (e) {
-      console.warn("[Backup] failed to read backup info", e);
-    }
-  };
-
-  useEffect(() => {
-    void refreshBackupInfo();
-  }, []);
-
-  const formatBackupTime = (time: number) =>
-    time ? new Date(time).toLocaleString() : "";
-
-  /**
-   * 备份与当前内容「交换」。
-   * 不叫「回滚」：手滑用备份覆盖了正确内容时，再点一次就能换回来，
-   * 两个方向都不会丢数据。
-   */
-  const swapWithBackup = async (slot: BackupSlot) => {
-    if (!(await showConfirm(Locale.Settings.Sync.Backup.SwapConfirm))) return;
-
-    try {
-      const record = await loadBackup(slot);
-      if (!record) {
-        showToast(Locale.Settings.Sync.Backup.Missing);
-        return;
-      }
-
-      // 先把「当前内容」写回同一个槽位，再应用备份 → 真正的交换
-      await saveBackup(slot, getLocalAppState());
-
-      const backupState = parseBackup(record);
-      const partial: Record<string, any> = {};
-      [StoreKey.Chat, StoreKey.Prompt, StoreKey.Mask].forEach((key) => {
-        if (backupState?.[key] !== undefined) partial[key] = backupState[key];
-      });
-      // 只恢复内容类数据，不动 API Key / 设置，避免换一下把配置也改掉
-      setLocalAppState(partial as any);
-
-      await refreshBackupInfo();
-      showToast(Locale.Settings.Sync.Backup.SwapDone);
-    } catch (e) {
-      console.error("[Backup] swap failed", e);
-      showToast(Locale.Settings.Sync.Backup.Failed);
-    }
-  };
+  /** 同步时检测到的冲突，非空时弹出选择框 */
+  const [syncConflictState, setSyncConflictState] = useState<{
+    conflicts: SyncConflict[];
+    resolve: (choices: Record<string, ConflictChoice> | null) => void;
+  } | null>(null);
 
   const progressLabel = (label: string) =>
     syncProgress
@@ -702,6 +661,12 @@ function SyncItems() {
       ? progressLabel(Locale.Settings.Sync.Downloading) ??
         Locale.Settings.Sync.Downloading
       : Locale.Settings.Sync.Download;
+
+  const syncText =
+    syncJob?.type === "sync"
+      ? progressLabel(Locale.Settings.Sync.Syncing) ??
+        Locale.Settings.Sync.Syncing
+      : Locale.Settings.Sync.Sync;
 
   // 云端数据的状态文案：分别显示上次上传 / 下载的时间
   const syncStateText = (() => {
@@ -757,6 +722,10 @@ function SyncItems() {
         { forceFull },
       );
       syncStore.markUploadTime();
+      // 上传成功后云端 == 本地，记为下次同步的基线
+      syncStore.markSynced(
+        buildSyncedHashes(local?.[StoreKey.Chat]?.sessions ?? []),
+      );
       if (stats.total === 0) {
         showToast(Locale.Settings.Sync.NothingChanged);
       } else if (stats.skipped > 0) {
@@ -790,10 +759,10 @@ function SyncItems() {
       const local = getLocalAppState();
       // 下载会用云端整体覆盖本地：先自动存一份当前内容，
       // 手滑点错了还能在「本地备份」里换回来
-      await saveBackup("auto", local).catch((e) =>
+      await saveBackup(local, "auto", syncStore.backupLimit).catch((e) =>
         console.warn("[Backup] auto backup before download failed", e),
       );
-      await refreshBackupInfo();
+      refreshBackups();
 
       // 把本地状态传进去：和远端哈希一致的项目直接跳过，不再下载
       const remote = await client.download(
@@ -808,6 +777,10 @@ function SyncItems() {
       // 只有完整下载成功才会覆盖本地数据
       setLocalAppState(remote);
       syncStore.markDownloadTime();
+      // 覆盖后本地 == 云端，把这份状态记为下次同步的基线
+      syncStore.markSynced(
+        buildSyncedHashes((remote as any)?.[StoreKey.Chat]?.sessions ?? []),
+      );
       showToast(Locale.Settings.Sync.DownloadSuccess);
     } catch (e) {
       if (isAbortError(e)) {
@@ -817,6 +790,96 @@ function SyncItems() {
         console.error("[Download]", e);
       }
     } finally {
+      setSyncJob(null);
+    }
+  };
+
+  /**
+   * 双向同步：本地和云端合并，冲突（两边都改过）时让用户挑。
+   * 流程：备份当前内容 → 拉取云端 → 规划 → （必要时）选冲突 → 合并 → 上传合并结果。
+   */
+  const runSync = async () => {
+    const controller = new AbortController();
+    setSyncJob({ type: "sync", controller });
+
+    try {
+      setSyncProgress(null);
+      showToast(Locale.Settings.Sync.Syncing);
+      const client = createUpstashClient(syncStore, {
+        signal: controller.signal,
+      });
+
+      const local = getLocalAppState();
+      // 同步会改动本地数据：先存一份，出问题可以在「本地备份」里换回来
+      await saveBackup(local, "auto", syncStore.backupLimit).catch((e) =>
+        console.warn("[Backup] auto backup before sync failed", e),
+      );
+      refreshBackups();
+
+      const remote = await client.download(local, (done, total) =>
+        setSyncProgress({ done, total }),
+      );
+      if (!remote) {
+        showToast(Locale.Settings.Sync.NoRemoteData);
+        return;
+      }
+
+      const plan = planSync(local, remote, syncStore.lastSyncedHashes ?? {});
+
+      let choices: Record<string, ConflictChoice> | null = {};
+      if (plan.conflicts.length > 0) {
+        // 等用户在弹窗里选完再继续（关掉弹窗 = 取消整个同步）
+        choices = await new Promise<Record<string, ConflictChoice> | null>(
+          (resolve) => {
+            setSyncConflictState({
+              conflicts: plan.conflicts,
+              resolve: (result) => {
+                setSyncConflictState(null);
+                resolve(result);
+              },
+            });
+          },
+        );
+
+        if (!choices) {
+          showToast(Locale.Settings.Sync.Canceled);
+          return;
+        }
+      }
+
+      const { state, syncedHashes } = mergeByChoices(
+        local,
+        remote,
+        plan,
+        choices,
+      );
+      setLocalAppState(state);
+
+      // 合并结果推回云端（增量：没变的部分会被跳过）
+      await client.upload(state, (done, total) =>
+        setSyncProgress({ done, total }),
+      );
+      syncStore.markSynced(syncedHashes);
+      syncStore.markUploadTime();
+      syncStore.markDownloadTime();
+
+      showToast(
+        Locale.Settings.Sync.SyncDone(
+          plan.remoteOnly.length + plan.remoteChanged.length,
+          plan.localChanged.length + plan.localOnly.length,
+          plan.conflicts.length,
+        ),
+      );
+    } catch (e) {
+      if (isAbortError(e)) {
+        showToast(Locale.Settings.Sync.Canceled);
+      } else {
+        showToast(Locale.Settings.Sync.SyncFailed);
+        console.error("[Sync]", e);
+      }
+    } finally {
+      setSyncConflictState(null);
+      setSyncProgress(null);
       setSyncJob(null);
     }
   };
@@ -874,6 +937,12 @@ function SyncItems() {
                   text={downloadText}
                   disabled={syncJob !== null}
                   onClick={() => void runDownload()}
+                />
+                <IconButton
+                  icon={<ConfirmIcon />}
+                  text={syncText}
+                  disabled={syncJob !== null}
+                  onClick={() => void runSync()}
                 />
                 {syncJob && (
                   <IconButton
@@ -995,61 +1064,25 @@ function SyncItems() {
             />
           </div>
         </ListItem>
-
-        {/*
-          本地备份：下载覆盖本地数据之前会自动存一份；
-          恢复做成「交换」——错把正确内容覆盖掉也能再点一次换回来。
-        */}
-        <ListItem
-          title={Locale.Settings.Sync.Backup.ManualTitle}
-          subTitle={Locale.Settings.Sync.Backup.ManualInfo(
-            backupInfo.manual ? formatBackupTime(backupInfo.manual.time) : "",
-            backupInfo.manual?.sessions ?? 0,
-          )}
-        >
-          <div style={{ display: "flex" }}>
-            <IconButton
-              icon={<AddIcon />}
-              text={Locale.Settings.Sync.Backup.Create}
-              onClick={async () => {
-                const record = await saveBackup("manual", getLocalAppState());
-                await refreshBackupInfo();
-                showToast(
-                  record
-                    ? Locale.Settings.Sync.Backup.CreateDone(record.sessions)
-                    : Locale.Settings.Sync.Backup.Failed,
-                );
-              }}
-            />
-            <IconButton
-              icon={<ResetIcon />}
-              text={Locale.Settings.Sync.Backup.Swap}
-              disabled={!backupInfo.manual}
-              onClick={() => void swapWithBackup("manual")}
-            />
-          </div>
-        </ListItem>
-
-        <ListItem
-          title={Locale.Settings.Sync.Backup.AutoTitle}
-          subTitle={Locale.Settings.Sync.Backup.AutoInfo(
-            backupInfo.auto ? formatBackupTime(backupInfo.auto.time) : "",
-            backupInfo.auto?.sessions ?? 0,
-          )}
-        >
-          <div style={{ display: "flex" }}>
-            <IconButton
-              icon={<ResetIcon />}
-              text={Locale.Settings.Sync.Backup.Swap}
-              disabled={!backupInfo.auto}
-              onClick={() => void swapWithBackup("auto")}
-            />
-          </div>
-        </ListItem>
       </List>
+
+      {/*
+        本地备份：下载 / 同步覆盖本地数据之前会自动存一份；
+        恢复做成「交换」——错把正确内容覆盖掉也能再点一次换回来。
+      */}
+      {/* 本地备份和云同步无关：没配置云端也应该能用 */}
+      <LocalBackupSection refreshKey={backupRefreshKey} />
 
       {showSyncConfigModal && (
         <SyncConfigModal onClose={() => setShowSyncConfigModal(false)} />
+      )}
+
+      {syncConflictState && (
+        <SyncConflictModal
+          conflicts={syncConflictState.conflicts}
+          onResolve={(choices) => syncConflictState.resolve(choices)}
+          onCancel={() => syncConflictState.resolve(null)}
+        />
       )}
     </>
   );
