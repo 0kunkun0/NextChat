@@ -38,9 +38,19 @@ function base64ToBytes(text: string): Uint8Array {
  */
 
 const DB_NAME = "nextchat-local-backup";
-const STORE_NAME = "backups";
+/**
+ * ⚠️ 这里必须沿用老库里的 store 名 "slots"。
+ *
+ * idb-keyval 的 createStore 只在**数据库第一次创建时**建 store；
+ * 如果数据库已经存在（老版本建过 "slots"），再换一个名字去开事务，
+ * 就会报 `One of the specified object stores was not found`。
+ * 所以 store 名保持不变，改在 store 内部换 key 布局（老数据会被迁移）。
+ */
+const STORE_NAME = "slots";
 const INDEX_KEY = "index";
 const ENTRY_PREFIX = "entry:";
+/** 老版本用的是两个固定槽位 key，迁移时会转成列表项 */
+const LEGACY_SLOT_KEYS = ["auto", "manual"] as const;
 
 /** 备份来源：手动 / 下载前自动 / 交换产生 */
 export type BackupKind = "manual" | "auto" | "swap";
@@ -146,11 +156,106 @@ function getBackupStore() {
   }
 }
 
+/**
+ * 确保数据库里确实有我们要的 store。
+ *
+ * idb-keyval 的 createStore 不会“补建”store：数据库已存在但它要的 store
+ * 不存在时，事务会直接报 `One of the specified object stores was not found`。
+ * 所以这里自己用带版本号的 open 兜底，缺哪个补哪个（历史上出现过 "slots"
+ * 和 "backups" 两个名字，两个都确保存在）。
+ */
+const DB_VERSION = 2;
+const LEGACY_STORE_NAME = "backups";
+
+let dbPromise: Promise<void> | null = null;
+
+function ensureDb(): Promise<void> {
+  if (dbPromise) return dbPromise;
+
+  dbPromise = new Promise<void>((resolve) => {
+    try {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        [STORE_NAME, LEGACY_STORE_NAME].forEach((name) => {
+          if (!db.objectStoreNames.contains(name)) db.createObjectStore(name);
+        });
+      };
+      request.onsuccess = () => {
+        request.result.close();
+        resolve();
+      };
+      request.onerror = () => resolve();
+      request.onblocked = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+
+  return dbPromise;
+}
+
+/** 拿到可用 store（顺带确保数据库结构就绪） */
+async function ready(): Promise<BackupStore | null> {
+  const store = getBackupStore();
+  if (!store) return null;
+  await ensureDb().catch(() => undefined);
+  return store;
+}
+
 type BackupStore = NonNullable<ReturnType<typeof getBackupStore>>;
 
+/**
+ * 迁移老版本的「固定槽位」备份（auto / manual）到新的列表结构。
+ *
+ * 只在没有 index 时执行一次：把老记录转成列表项、补上 id，然后删掉旧 key。
+ * 老记录的 state 是明文 JSON（没有 gz 标记），parseBackup 仍然能读。
+ */
+async function migrateLegacySlots(store: BackupStore): Promise<BackupMeta[]> {
+  const legacy: BackupMeta[] = [];
+
+  for (const key of LEGACY_SLOT_KEYS) {
+    let record: any = null;
+    try {
+      record = await get(key, store);
+    } catch {
+      record = null;
+    }
+    if (!record || typeof record.state !== "string") continue;
+
+    const meta: BackupRecord = {
+      id: `${key}-${record.time ?? Date.now()}`,
+      time: Number(record.time) || Date.now(),
+      kind: key === "auto" ? "auto" : "manual",
+      sessions: Number(record.sessions) || 0,
+      bytes: Number(record.bytes) || 0,
+      // 老记录没有 gz 标记 → 明文 JSON
+      state: record.state,
+    };
+
+    try {
+      await set(`${ENTRY_PREFIX}${meta.id}`, meta, store);
+      await del(key, store);
+      legacy.push(toMeta(meta));
+    } catch (e) {
+      console.warn("[Backup] failed to migrate legacy slot", key, e);
+    }
+  }
+
+  if (legacy.length > 0) {
+    legacy.sort((a, b) => b.time - a.time);
+    await set(INDEX_KEY, legacy, store);
+    console.log("[Backup] migrated legacy backups:", legacy.length);
+  }
+
+  return legacy;
+}
+
+/** 读列表；首次调用时顺便把老槽位迁移过来 */
 async function readIndex(store: BackupStore): Promise<BackupMeta[]> {
-  const list = await get<BackupMeta[]>(INDEX_KEY, store);
-  return Array.isArray(list) ? list : [];
+  const list = await get<BackupMeta[]>(INDEX_KEY, store).catch(() => undefined);
+  if (Array.isArray(list)) return list;
+  return migrateLegacySlots(store);
 }
 
 const toMeta = (record: BackupRecord): BackupMeta => ({
@@ -176,7 +281,7 @@ async function commit(store: BackupStore, list: BackupMeta[], limit: number) {
 
 /** 读取备份列表（按时间倒序，最新的在前），不含内容 */
 export async function listBackups(): Promise<BackupMeta[]> {
-  const store = getBackupStore();
+  const store = await ready();
   if (!store) return [];
   try {
     const list = await readIndex(store);
@@ -198,7 +303,7 @@ export async function saveBackup(
   kind: BackupKind,
   limit: number = DEFAULT_BACKUP_LIMIT,
 ): Promise<BackupRecord | null> {
-  const store = getBackupStore();
+  const store = await ready();
   if (!store) return null;
 
   const record = buildBackupRecord(state, kind);
@@ -231,7 +336,7 @@ export async function saveBackup(
 }
 
 export async function getBackup(id: string): Promise<BackupRecord | null> {
-  const store = getBackupStore();
+  const store = await ready();
   if (!store) return null;
   try {
     return (await get<BackupRecord>(`${ENTRY_PREFIX}${id}`, store)) ?? null;
@@ -250,7 +355,7 @@ export async function replaceBackupWithCurrent(
   kind: BackupKind = "swap",
   limit: number = DEFAULT_BACKUP_LIMIT,
 ): Promise<BackupRecord | null> {
-  const store = getBackupStore();
+  const store = await ready();
   if (!store) return null;
 
   const list = await readIndex(store);
@@ -269,7 +374,7 @@ export async function replaceBackupWithCurrent(
 
 /** 按上限裁剪（比如用户把滑块从 8 调到 3 之后） */
 export async function trimBackups(limit: number): Promise<BackupMeta[]> {
-  const store = getBackupStore();
+  const store = await ready();
   if (!store) return [];
 
   const list = await readIndex(store);
@@ -278,11 +383,17 @@ export async function trimBackups(limit: number): Promise<BackupMeta[]> {
 
 /** 重置所有数据时调用：备份也一起清掉 */
 export async function clearBackups() {
-  const store = getBackupStore();
+  const store = await ready();
   if (!store) return;
   try {
     const list = await readIndex(store);
-    await Promise.all(list.map((m) => del(`${ENTRY_PREFIX}${m.id}`, store)));
+    await Promise.all(
+      list.map((m) => del(`${ENTRY_PREFIX}${m.id}`, store)),
+    ).catch(() => undefined);
+    // 老槽位 key 也一起删掉，避免留下孤儿数据占配额
+    await Promise.all(LEGACY_SLOT_KEYS.map((key) => del(key, store))).catch(
+      () => undefined,
+    );
     await del(INDEX_KEY, store);
     notifyChanged();
   } catch {
@@ -290,7 +401,6 @@ export async function clearBackups() {
   }
 }
 
-/** 把 JSON 还原成对象 */
 /** 把备份还原成对象（兼容老的未压缩记录） */
 export function parseBackup(record: BackupRecord): any {
   if (record.gz) {
