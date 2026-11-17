@@ -976,6 +976,16 @@ export function createUpstashClient(
 
       for (const item of localSessions) {
         throwIfAborted();
+        // 防御：id 不合法 / 不是对象时跳过，避免写出 `-undefined` 这种 key，
+        // 也避免把整条会话静默丢掉却看不出来
+        if (!item.session || typeof item.session !== "object") {
+          console.warn("[Upstash] skip invalid session payload");
+          continue;
+        }
+        if (typeof item.session.id !== "string" || !item.session.id) {
+          console.warn("[Upstash] skip session without id", item.session);
+          continue;
+        }
         sessionItems.push(
           await plan("sessions", item.session.id, item.json, item.hash),
         );
@@ -985,11 +995,58 @@ export function createUpstashClient(
         storeItems.push(await plan("stores", item.name, item.json, item.hash));
       }
 
+      /**
+       * 索引合并：本地有的会话用新条目，**云端已有但本地没有的条目保留**。
+       *
+       * 以前这里直接用本地的 sessionItems 覆盖整个索引：一旦本地少了一条
+       * （拖动 / 删除 / 状态异常），云端索引里的对应条目就被抹掉，
+       * 那条对话在云端等于"消失"了 —— 也就是用户看到的"上传吞内容"。
+       * 上传永远不删，宁可多留也不要丢。
+       */
+      const localSessionIds = new Set(sessionItems.map((item) => item.id));
+      const remoteSessionsList = remoteIndex?.sessions ?? [];
+      const keptRemoteSessions = remoteSessionsList.filter(
+        (item) => item && item.id && !localSessionIds.has(item.id),
+      );
+      if (keptRemoteSessions.length > 0) {
+        console.warn(
+          "[Upstash] keeping remote-only sessions in the index:",
+          keptRemoteSessions.map((item) => item.id),
+        );
+      }
+
+      /**
+       * 索引里的会话列表：
+       * - 全量 / 增量：本地顺序 + 云端独有的条目（兜底保留）；
+       * - 单条上传（sessionIds）：保持云端原有顺序，只替换被上传那一条，
+       *   避免点一次单条上传就把整个侧边栏顺序改了。
+       */
+      const localItemById = new Map(
+        sessionItems.map((item) => [item.id, item]),
+      );
+      const mergedSessions = onlyIds
+        ? [
+            ...remoteSessionsList.map(
+              (item) => localItemById.get(item.id) ?? item,
+            ),
+            ...sessionItems.filter(
+              (item) =>
+                !remoteSessionsList.some((remote) => remote.id === item.id),
+            ),
+          ]
+        : [...sessionItems, ...keptRemoteSessions];
+
       const total = small.length + big.length;
       const chatHash = hashString(JSON.stringify(chatMeta));
       const chatChanged =
         hashString(JSON.stringify(remoteIndex?.chat ?? null)) !== chatHash;
-      if (total === 0 && !chatChanged) {
+
+      // 会话顺序也算改动：侧边栏拖动的结果要能同步到云端索引
+      const mergedIds = mergedSessions.map((item) => item.id).join(",");
+      const remoteIds = remoteSessionsList.map((item) => item.id).join(",");
+      const orderChanged = mergedIds !== remoteIds;
+
+      if (total === 0 && !chatChanged && !orderChanged) {
         console.log("[Upstash] nothing changed, skip upload");
         return { uploaded: 0, skipped: considered, total: 0 };
       }
@@ -1067,16 +1124,8 @@ export function createUpstashClient(
         v: 3,
         updatedAt: Date.now(),
         chat: chatMeta,
-        // 只上传单个会话时，其它会话的索引条目必须原样保留，
-        // 否则下次下载会以为它们不存在了
-        sessions: onlyIds
-          ? [
-              ...sessionItems,
-              ...(remoteIndex?.sessions ?? []).filter(
-                (item) => !onlyIds.has(item.id),
-              ),
-            ]
-          : sessionItems,
+        // 本地会话 + 云端保留的条目（上传从不删会话，见上面的 mergedSessions）
+        sessions: mergedSessions,
         stores: storeItems,
         compress,
         ...(options?.extraIndex ?? {}),

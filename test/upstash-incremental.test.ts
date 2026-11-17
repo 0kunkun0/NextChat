@@ -256,6 +256,60 @@ describe("upstash incremental upload", () => {
     expect(server.writes).toEqual([]);
   });
 
+  test("reordering sessions (sidebar drag) keeps every session in the cloud", async () => {
+    const server = installFakeUpstash();
+    const state = makeState();
+    await client.upload(state);
+
+    // 模拟侧边栏拖动：只改变顺序，内容不动
+    const reordered = makeState();
+    (reordered[StoreKey.Chat] as any).sessions = [
+      makeSession("s2", "world"),
+      makeSession("s1", "hello"),
+    ];
+    (reordered[StoreKey.Chat] as any).currentSessionIndex = 1;
+
+    server.writes.length = 0;
+    await client.upload(reordered);
+
+    // 内容没变，但顺序变了 → 只重写索引（不重传会话数据）
+    expect(server.writes).toEqual(["backup-v2-index"]);
+
+    const index = readIndex(server);
+    expect(index.sessions.map((s: any) => s.id)).toEqual(["s2", "s1"]);
+
+    // 下载回来两条都在，且内容正确
+    const restored = await client.download();
+    const sessions = (restored as any)[StoreKey.Chat].sessions;
+    expect(sessions.map((s: any) => s.id)).toEqual(["s2", "s1"]);
+    expect(sessions.find((s: any) => s.id === "s1").messages[0].content).toBe(
+      "hello",
+    );
+    expect(sessions.find((s: any) => s.id === "s2").messages[0].content).toBe(
+      "world",
+    );
+  });
+
+  test("upload never removes sessions that are missing locally", async () => {
+    const server = installFakeUpstash();
+    await client.upload(makeState());
+
+    // 本地只剩 s1（例如本地意外丢了一条）：上传不能把云端的 s2 抹掉
+    const partial = makeState();
+    (partial[StoreKey.Chat] as any).sessions = [makeSession("s1", "hello")];
+    await client.upload(partial);
+
+    const index = readIndex(server);
+    expect(index.sessions.map((s: any) => s.id).sort()).toEqual(["s1", "s2"]);
+
+    const restored = await client.download();
+    const sessions = (restored as any)[StoreKey.Chat].sessions;
+    expect(sessions.map((s: any) => s.id).sort()).toEqual(["s1", "s2"]);
+    expect(sessions.find((s: any) => s.id === "s2").messages[0].content).toBe(
+      "world",
+    );
+  });
+
   test("lastInput（输入框草稿）不会写进云端索引", async () => {
     const server = installFakeUpstash();
     const state = makeState();
