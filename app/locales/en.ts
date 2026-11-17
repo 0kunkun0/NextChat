@@ -677,6 +677,11 @@ const en: LocaleType = {
           Title: "Endpoint Address",
           SubTitle: "Example: ",
         },
+        Direct: {
+          Title: "Connect to DeepSeek directly (no server)",
+          SubTitle:
+            "The browser talks to api.deepseek.com with the key stored on this device (their API supports CORS). Chat then bypasses this project's server, and the key never leaves this device.",
+        },
       },
       XAI: {
         ApiKey: {

@@ -2014,6 +2014,22 @@ export function Settings() {
           }}
         />
       </ListItem>
+      <ListItem
+        title={Locale.Settings.Access.DeepSeek.Direct.Title}
+        subTitle={Locale.Settings.Access.DeepSeek.Direct.SubTitle}
+      >
+        <input
+          type="checkbox"
+          aria-label={Locale.Settings.Access.DeepSeek.Direct.Title}
+          checked={!!(accessStore as any).deepseekDirect}
+          onChange={(e) => {
+            accessStore.update(
+              (access) =>
+                ((access as any).deepseekDirect = e.currentTarget.checked),
+            );
+          }}
+        ></input>
+      </ListItem>
     </>
   );
 

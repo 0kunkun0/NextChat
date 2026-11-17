@@ -6,6 +6,11 @@ const APP_SHELL_CACHE = "chatgpt-next-web-shell-v1";
 const APP_STATIC_CACHE = "chatgpt-next-web-static-v1";
 let a="useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict";let nanoid=(e=21)=>{let t="",r=crypto.getRandomValues(new Uint8Array(e));for(let n=0;n<e;n++)t+=a[63&r[n]];return t};
 
+/** 打开页面时，距上次后台更新超过这个间隔才去服务器要新版（跨境链路很慢） */
+const SHELL_REVALIDATE_INTERVAL = 30 * 60 * 1000;
+/** 记录上次更新时间用的假 key */
+const SHELL_META_KEY = "/__shell-meta__";
+
 self.addEventListener("fetch", function (event) {
   const request = event.request;
   if (request.method !== "GET") return;
@@ -22,9 +27,13 @@ self.addEventListener("fetch", function (event) {
   if (url.pathname.startsWith("/api/")) return;
   if (url.pathname === "/serviceWorker.js") return;
 
-  // 打开页面 / 切回 PWA：先给缓存（秒开），同时后台拉最新版本回填缓存
+  // 打开页面 / 切回 PWA：先给缓存（秒开），超过间隔才后台拉最新版本
   if (request.mode === "navigate") {
-    event.respondWith(staleWhileRevalidate(request, APP_SHELL_CACHE));
+    event.respondWith(
+      staleWhileRevalidate(request, APP_SHELL_CACHE, {
+        minIntervalMs: SHELL_REVALIDATE_INTERVAL,
+      }),
+    );
     return;
   }
 
@@ -34,6 +43,23 @@ self.addEventListener("fetch", function (event) {
     ["script", "style", "font", "image"].includes(request.destination)
   ) {
     event.respondWith(cacheFirst(request, APP_STATIC_CACHE));
+    return;
+  }
+
+  // 字体样式表：同源代理（/google-fonts/...），内容基本不变 → 缓存优先。
+  // 不缓存的话每次打开都要经服务器转一圈去 Google，国内还很慢。
+  if (url.pathname.startsWith("/google-fonts/")) {
+    event.respondWith(cacheFirst(request, APP_STATIC_CACHE));
+    return;
+  }
+
+  // 插件清单：同源静态文件，启动时就会拉一次 → 缓存优先 + 后台更新
+  if (url.pathname === "/plugins.json") {
+    event.respondWith(
+      staleWhileRevalidate(request, APP_STATIC_CACHE, {
+        minIntervalMs: 6 * 60 * 60 * 1000,
+      }),
+    );
   }
 });
 
@@ -62,9 +88,21 @@ async function warmAssets(html) {
   );
 }
 
-async function staleWhileRevalidate(request, cacheName) {
+async function staleWhileRevalidate(request, cacheName, options) {
+  const minIntervalMs = (options && options.minIntervalMs) || 0;
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
+
+  // 刚更新过就别再去要了：跨境链路上每次打开都发一个请求会明显变慢
+  if (cached && minIntervalMs > 0) {
+    try {
+      const meta = await cache.match(SHELL_META_KEY);
+      if (meta) {
+        const last = Number(await meta.text()) || 0;
+        if (Date.now() - last < minIntervalMs) return cached;
+      }
+    } catch (e) {}
+  }
 
   // 后台更新：不管有没有命中缓存，都去服务器要一份新的
   const networkPromise = fetch(request)
@@ -74,6 +112,14 @@ async function staleWhileRevalidate(request, cacheName) {
         // 顺手把新版本引用的静态资源也抓下来
         try {
           warmAssets(await response.clone().text());
+        } catch (e) {}
+        try {
+          await cache.put(
+            SHELL_META_KEY,
+            new Response(String(Date.now()), {
+              headers: { "content-type": "text/plain" },
+            }),
+          );
         } catch (e) {}
       }
       return response;

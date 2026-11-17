@@ -686,6 +686,11 @@ const cn = {
           Title: "接口地址",
           SubTitle: "样例：",
         },
+        Direct: {
+          Title: "直连 DeepSeek（不经服务器）",
+          SubTitle:
+            "用本机填写的密钥由浏览器直接请求 api.deepseek.com（官方接口支持跨域）。开启后聊天不再经过本项目服务器，密钥也只留在这台设备上。",
+        },
       },
       XAI: {
         ApiKey: {

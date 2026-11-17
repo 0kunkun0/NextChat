@@ -37,7 +37,9 @@ export class DeepSeekApi implements LLMApi {
 
     let baseUrl = "";
 
-    if (accessStore.useCustomConfig) {
+    // 直连模式：只要用户勾了「直连 DeepSeek」，就用浏览器直接请求官方接口。
+    // DeepSeek 的接口带 CORS 响应头，密钥也只留在本机，不经过本项目服务器。
+    if (accessStore.useCustomConfig || (accessStore as any).deepseekDirect) {
       baseUrl = accessStore.deepseekUrl;
     }
 

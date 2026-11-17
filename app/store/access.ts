@@ -28,6 +28,36 @@ import { getModelProvider } from "../utils/model";
 
 let fetchState = 0; // 0 not fetch, 1 fetching, 2 done
 
+/**
+ * 服务器配置（/api/config）缓存。
+ *
+ * 这份配置是构建/部署时确定的，几乎不会变。原来每次打开都要 POST 一次
+ * /api/config，在跨境链路上就是白白多等几秒；缓存一份到 localStorage 后
+ * 首屏直接用旧值，新值后台再覆盖。
+ */
+const SERVER_CONFIG_CACHE_KEY = "server-config-cache";
+
+function readCachedServerConfig(): DangerConfig | null {
+  try {
+    const raw = window.localStorage.getItem(SERVER_CONFIG_CACHE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as DangerConfig;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedServerConfig(config: DangerConfig) {
+  try {
+    window.localStorage.setItem(
+      SERVER_CONFIG_CACHE_KEY,
+      JSON.stringify(config ?? {}),
+    );
+  } catch {
+    // 隐私模式下写不进去，忽略即可
+  }
+}
+
 const isApp = getClientConfig()?.buildMode === "export";
 
 const DEFAULT_OPENAI_URL = isApp ? OPENAI_BASE_URL : ApiPath.OpenAI;
@@ -65,6 +95,12 @@ const DEFAULT_AI302_URL = isApp ? AI302_BASE_URL : ApiPath["302.AI"];
 const DEFAULT_ACCESS_STATE = {
   accessCode: "",
   useCustomConfig: false,
+  /**
+   * 直连 DeepSeek：用本机的 API Key 直接从浏览器访问 api.deepseek.com，
+   * 不经过本项目的服务器（DeepSeek 允许跨域）。
+   * 只影响 DeepSeek，不会像 useCustomConfig 那样牵连其它服务商。
+   */
+  deepseekDirect: false,
 
   provider: ServiceProvider.OpenAI,
 
@@ -252,6 +288,14 @@ export const useAccessStore = createPersistStore(
     fetch() {
       if (fetchState > 0 || getClientConfig()?.buildMode === "export") return;
       fetchState = 1;
+
+      // 先用上次缓存的服务器配置（本地秒开，不用等这一趟网络）
+      const cached = readCachedServerConfig();
+      if (cached) {
+        console.log("[Config] using cached server config");
+        set(() => ({ ...cached }));
+      }
+
       fetch("/api/config", {
         method: "post",
         body: null,
@@ -272,6 +316,7 @@ export const useAccessStore = createPersistStore(
         })
         .then((res: DangerConfig) => {
           console.log("[Config] got config from server", res);
+          writeCachedServerConfig(res);
           set(() => ({ ...res }));
         })
         .catch(() => {
