@@ -22,6 +22,14 @@ const MAX_CHUNK_BYTES = 10 * 1000 * 1000;
 /** 分片大小可选范围（KB）：16KB ~ 10240KB（=10MB） */
 const MIN_CHUNK_KB = 16;
 const MAX_CHUNK_KB = 10240;
+/**
+ * 防御性清扫时最多扫这么多个分片。
+ *
+ * 正常情况下我们用 `-n` 记录的真实数量精确清理，这个上限只在数据被写坏、
+ * 读不到 `-n` 时兜底。取 1024（不是 64）：按 16KB 分块、10MB 上限计算
+ * 最多需要 ~640 片，1024 留足余量，同时也远没有到“删 6000 个 key”的程度。
+ */
+const MAX_CHUNK_SWEEP = 1024;
 /** 没有设置过（老版本持久化的 store）时用的默认值 */
 const DEFAULT_CHUNK_KB = 1024;
 /**
@@ -735,22 +743,60 @@ export function createUpstashClient(
       return true;
     },
 
-    /** 删除 [from, to) 区间的旧分片（连同 -n），一次 pipeline 搞定 */
+    /**
+     * 删除 [from, to) 区间的旧分片（from 为 0 时连同 -n）。
+     * 用 Redis 的多 key DEL：100 个 key 一条命令、5 条命令一个 pipeline，
+     * 分片多的时候请求数也不会爆。
+     */
     async dropChunks(key: string, from: number, to: number) {
-      const commands: string[][] = [];
-      for (let i = from; i < to; i++) {
-        commands.push(["DEL", `${key}-c${i}`]);
-      }
+      const keys: string[] = [];
+      for (let i = from; i < to; i++) keys.push(`${key}-c${i}`);
       // from === 0 表示这条已经改回“不分片”，连 -n 一起删
-      if (from === 0) commands.push(["DEL", `${key}-n`]);
-      if (commands.length === 0) return;
+      if (from === 0) keys.push(`${key}-n`);
+      if (keys.length === 0) return;
 
       try {
-        await this.pipeline(commands);
+        await this.deleteKeys(keys);
       } catch (e) {
         // 清理失败不影响数据正确性（读端以索引为准），忽略
         console.warn("[Upstash] failed to clean stale chunks", key, e);
       }
+    },
+
+    /**
+     * 删掉一批 key（多 key DEL + 批量 pipeline）。
+     * 之前是一个 key 一条命令、每批 40 条，上千个 key 要跑二十多个请求。
+     */
+    async deleteKeys(keys: string[]) {
+      if (keys.length === 0) return;
+
+      const KEYS_PER_COMMAND = 100;
+      const COMMANDS_PER_PIPELINE = 5;
+
+      const commands: string[][] = [];
+      for (let i = 0; i < keys.length; i += KEYS_PER_COMMAND) {
+        commands.push(["DEL", ...keys.slice(i, i + KEYS_PER_COMMAND)]);
+      }
+
+      for (let i = 0; i < commands.length; i += COMMANDS_PER_PIPELINE) {
+        throwIfAborted();
+        await this.pipeline(commands.slice(i, i + COMMANDS_PER_PIPELINE));
+      }
+    },
+
+    /**
+     * 把一个 key 的所有分片清干净（含 `-n`）。
+     *
+     * 优先按 `-n` 记录的真实分片数删（精确、请求少）；
+     * 读不到 `-n`（数据被写坏 / 只写了一半）时，按 MAX_CHUNK_SWEEP 兜底全扫。
+     */
+    async sweepChunks(key: string) {
+      const recorded = Number(await this.redisGet(`${key}-n`)) || 0;
+      const count = recorded > 0 ? recorded : MAX_CHUNK_SWEEP;
+
+      const keys: string[] = [`${key}-n`];
+      for (let i = 0; i < count; i++) keys.push(`${key}-c${i}`);
+      await this.deleteKeys(keys);
     },
 
     /** 读一个 value：单 key 或按索引里记录的分片数拼接 */
@@ -1151,8 +1197,8 @@ export function createUpstashClient(
         throwIfAborted();
         const key = sessionKey(item.id);
         await this.pipeline([["DEL", key]]).catch(() => {});
-        // 分片可能残留：连 -n 一起清掉（最多 64 片，一次 pipeline）
-        await this.dropChunks(key, 0, 64);
+        // 分片可能残留：按 -n 精确清，读不到再按上限兜底
+        await this.sweepChunks(key);
       });
 
       const writeMs = Date.now() - writeStartedAt;
@@ -1591,11 +1637,14 @@ export function createUpstashClient(
         console.log("[Upstash] remote keys:", scannedKeys);
       }
 
-      // 4. 兜底：即使拿不到 scan / keys，也把已知项可能的分片扫掉。
-      //    分片上限 64（单条 64MB 远超过实际使用），代价只是一些 DEL。
+      // 4. 兜底：把已知项的 `-n` 和分片一起删。
+      //    分片数按 `-n` 的记录精确取，读不到再按 MAX_CHUNK_SWEEP 兜底，
+      //    避免 key 列表因为上限太大而膨胀。
       for (const base of baseKeys) {
         keys.add(`${base}-n`);
-        for (let i = 0; i < 64; i++) keys.add(`${base}-c${i}`);
+        const recorded = Number(await this.redisGet(`${base}-n`)) || 0;
+        const count = recorded > 0 ? recorded : MAX_CHUNK_SWEEP;
+        for (let i = 0; i < count; i++) keys.add(`${base}-c${i}`);
       }
 
       /**

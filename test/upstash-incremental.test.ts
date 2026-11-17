@@ -521,6 +521,45 @@ describe("upstash incremental upload", () => {
     }
   });
 
+  test("分片数量超过 64 也能全部清掉（按 -n 精确清）", async () => {
+    const server = installFakeUpstash();
+    await client.upload(makeState());
+
+    // 手工造一个 100 片的分片会话（旧版本只扫 64 片，会漏掉后 36 片）
+    for (let i = 0; i < 100; i++) {
+      server.kv.set(`backup-v2-s-s2-c${i}`, `chunk-${i}`);
+    }
+    server.kv.delete("backup-v2-s-s2");
+    server.kv.set("backup-v2-s-s2-n", "100");
+
+    const index = readIndex(server);
+    const entry = index.sessions.find((s: any) => s.id === "s2");
+    entry.chunked = true;
+    server.kv.set("backup-v2-index", JSON.stringify(index));
+
+    await client.clearRemote();
+
+    for (let i = 0; i < 100; i++) {
+      expect(server.kv.has(`backup-v2-s-s2-c${i}`)).toBe(false);
+    }
+    expect(server.kv.has("backup-v2-s-s2-n")).toBe(false);
+  });
+
+  test("读不到 -n 时按上限兜底扫描残留分片", async () => {
+    const server = installFakeUpstash();
+    await client.upload(makeState());
+
+    // 模拟“写了一半”：有分片但没有 -n
+    server.kv.set("backup-v2-s-s1-c0", "a");
+    server.kv.set("backup-v2-s-s1-c1", "b");
+    server.kv.delete("backup-v2-s-s1-n");
+
+    await client.clearRemote();
+
+    expect(server.kv.has("backup-v2-s-s1-c0")).toBe(false);
+    expect(server.kv.has("backup-v2-s-s1-c1")).toBe(false);
+  });
+
   test("clearRemote wipes every key under the store prefix", async () => {
     // 关掉压缩，保证会话会被切片
     const savedCompression = (globalThis as any).CompressionStream;
