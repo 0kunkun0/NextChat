@@ -792,8 +792,19 @@ export function createUpstashClient(
          * 不用把几 MB 的历史全传一遍。
          */
         sessionIds?: string[];
+        /**
+         * 删除「云端有、本地没有」的会话。
+         * 默认 false（上传永不删），只有用户手动勾选时才传 true。
+         */
+        deleteMissing?: boolean;
       },
-    ): Promise<{ uploaded: number; skipped: number; total: number }> {
+    ): Promise<{
+      uploaded: number;
+      skipped: number;
+      total: number;
+      /** 本次顺带删掉的「云端有、本地没有」的会话数 */
+      deleted: number;
+    }> {
       const startedAt = Date.now();
       const chat = state[StoreKey.Chat] ?? {};
       const allSessions: any[] = Array.isArray(chat.sessions)
@@ -1005,13 +1016,29 @@ export function createUpstashClient(
        */
       const localSessionIds = new Set(sessionItems.map((item) => item.id));
       const remoteSessionsList = remoteIndex?.sessions ?? [];
-      const keptRemoteSessions = remoteSessionsList.filter(
+      const remoteOnlySessions = remoteSessionsList.filter(
         (item) => item && item.id && !localSessionIds.has(item.id),
       );
+
+      /**
+       * 默认保留云端独有的会话（上传不删，避免误删）。
+       * 用户显式勾选「删除云端已不存在的会话」时，才把这些条目连同数据一起删掉。
+       */
+      const purgeSessions = options?.deleteMissing ? remoteOnlySessions : [];
+      const keptRemoteSessions = options?.deleteMissing
+        ? []
+        : remoteOnlySessions;
+
       if (keptRemoteSessions.length > 0) {
         console.warn(
           "[Upstash] keeping remote-only sessions in the index:",
           keptRemoteSessions.map((item) => item.id),
+        );
+      }
+      if (purgeSessions.length > 0) {
+        console.log(
+          "[Upstash] purging sessions removed locally:",
+          purgeSessions.map((item) => item.id),
         );
       }
 
@@ -1048,7 +1075,12 @@ export function createUpstashClient(
 
       if (total === 0 && !chatChanged && !orderChanged) {
         console.log("[Upstash] nothing changed, skip upload");
-        return { uploaded: 0, skipped: considered, total: 0 };
+        return {
+          uploaded: 0,
+          skipped: considered,
+          total: 0,
+          deleted: purgeSessions.length,
+        };
       }
 
       let done = 0;
@@ -1111,6 +1143,16 @@ export function createUpstashClient(
       await runLimited(stalePlainKeys, UPLOAD_CONCURRENCY, async (key) => {
         throwIfAborted();
         await this.pipeline([["DEL", key]]).catch(() => {});
+      });
+
+      // 2.6 用户勾选了「删除云端已不存在的会话」：把这些会话的数据一起删掉
+      //     （索引里也已经排除它们，所以删完不会有残留引用）
+      await runLimited(purgeSessions, UPLOAD_CONCURRENCY, async (item) => {
+        throwIfAborted();
+        const key = sessionKey(item.id);
+        await this.pipeline([["DEL", key]]).catch(() => {});
+        // 分片可能残留：连 -n 一起清掉（最多 64 片，一次 pipeline）
+        await this.dropChunks(key, 0, 64);
       });
 
       const writeMs = Date.now() - writeStartedAt;
@@ -1186,6 +1228,7 @@ export function createUpstashClient(
         uploaded: done,
         skipped: considered - total,
         total,
+        deleted: purgeSessions.length,
       };
     },
 
@@ -1555,13 +1598,25 @@ export function createUpstashClient(
         for (let i = 0; i < 64; i++) keys.add(`${base}-c${i}`);
       }
 
-      // 4. 分批 DEL
+      /**
+       * 5. 一次性删掉。
+       *
+       * Redis 的 DEL 支持一次带多个 key，把 100 个 key 塞进一条 DEL 命令，
+       * 每条 pipeline 再带 5 条命令 → 上千个 key 只需要几个请求。
+       * 之前是「一个 key 一条命令、每批 40 条」，900 多个 key 要跑二十多个
+       * 请求，用户看到的就是“数据库已经空了，前端还在转”。
+       */
       const list = Array.from(keys);
-      const CLEAR_BATCH = 40;
-      for (let i = 0; i < list.length; i += CLEAR_BATCH) {
+      const KEYS_PER_COMMAND = 100;
+      const commands: string[][] = [];
+      for (let i = 0; i < list.length; i += KEYS_PER_COMMAND) {
+        commands.push(["DEL", ...list.slice(i, i + KEYS_PER_COMMAND)]);
+      }
+
+      const COMMANDS_PER_PIPELINE = 5;
+      for (let i = 0; i < commands.length; i += COMMANDS_PER_PIPELINE) {
         throwIfAborted();
-        const batch = list.slice(i, i + CLEAR_BATCH);
-        await this.pipeline(batch.map((key) => ["DEL", key]));
+        await this.pipeline(commands.slice(i, i + COMMANDS_PER_PIPELINE));
       }
 
       console.log("[Upstash] cleared remote keys:", list.length);

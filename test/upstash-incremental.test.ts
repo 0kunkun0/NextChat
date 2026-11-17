@@ -98,8 +98,12 @@ function installFakeUpstash(
           return { result: "OK" };
         }
         if (command[0] === "DEL") {
-          const existed = kv.delete(command[1]);
-          return { result: existed ? 1 : 0 };
+          // DEL 支持一次带多个 key（clearRemote 现在就是这么批量删的）
+          let count = 0;
+          for (const key of command.slice(1)) {
+            if (kv.delete(key)) count += 1;
+          }
+          return { result: count };
         }
         gets.push(command[1]);
         return { result: kv.has(command[1]) ? kv.get(command[1])! : null };
@@ -338,6 +342,26 @@ describe("upstash incremental upload", () => {
     const restored = await client.download(local);
     // 远端草稿不会被带回来（本地的也不该被清空，这里只验证不覆盖）
     expect((restored as any)[StoreKey.Chat].lastInput).toBeUndefined();
+  });
+
+  test("deleteMissing removes sessions that only exist in the cloud", async () => {
+    const server = installFakeUpstash();
+    await client.upload(makeState());
+
+    // 本地删掉 s2 后，勾选「删除云端已不存在的会话」再上传
+    const partial = makeState();
+    (partial[StoreKey.Chat] as any).sessions = [makeSession("s1", "hello")];
+
+    const stats = await client.upload(partial, undefined, {
+      deleteMissing: true,
+    });
+
+    expect(stats.deleted).toBe(1);
+    // 索引里只剩 s1，s2 的数据 key 也被删掉
+    const index = readIndex(server);
+    expect(index.sessions.map((s: any) => s.id)).toEqual(["s1"]);
+    expect(server.kv.has("backup-v2-s-s2")).toBe(false);
+    expect(server.kv.has("backup-v2-s-s2-n")).toBe(false);
   });
 
   test("uploading unchanged state writes nothing", async () => {

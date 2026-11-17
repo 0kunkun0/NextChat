@@ -330,6 +330,7 @@ const en: LocaleType = {
         ClearWrongCode: "Wrong access code, canceled",
         ClearConfirm:
           "ALL cloud keys under the current backup name will be DELETED. Local data is untouched; nothing is uploaded automatically. Continue?",
+        Clearing: "Clearing cloud data…",
         ClearDone: (count: number) => `Cleared ${count} cloud key(s)`,
         ClearFailed: "Failed to clear cloud data",
       },
@@ -337,11 +338,13 @@ const en: LocaleType = {
       Backup: {
         Title: (limit: number, count: number) =>
           `Local backups (${count}/${limit})`,
+        Open: "Open backup list",
+        ModalTitle: "Local backups",
         SubTitle:
           "One is saved automatically before download / sync; swapping is two-way, so clicking again swaps back",
         LimitTitle: (limit: number) => `Keep up to ${limit}`,
         LimitSubTitle: (min: number, max: number) =>
-          `Adjustable ${min} ~ ${max}; the oldest one is dropped when exceeded`,
+          `Adjustable ${min} ~ ${max}; lowering it does not delete anything until the next new backup`,
         KindManual: "Manual",
         KindAuto: "Automatic",
         KindSwap: "Swapped",
@@ -360,6 +363,15 @@ const en: LocaleType = {
         Failed: "Local backup failed",
         FailedWithReason: (reason: string) => `Local backup failed: ${reason}`,
       },
+
+      DeleteMissing: {
+        Title: "Delete cloud sessions that no longer exist locally",
+        SubTitle:
+          "When checked, this upload also removes sessions that were deleted locally (the checkbox clears itself afterwards)",
+      },
+
+      UploadSuccessDeleted: (count: number) =>
+        `Upload complete, removed ${count} cloud session(s)`,
 
       Sync: "Sync",
       Syncing: "Syncing",

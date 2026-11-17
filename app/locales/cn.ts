@@ -326,6 +326,7 @@ const cn = {
         ClearWrongCode: "访问密码不正确，已取消",
         ClearConfirm:
           "将删除当前备份名前缀下的全部云端 key。本地数据不受影响，清空后不会自动上传。确定继续吗？",
+        Clearing: "正在清空云端数据…",
         ClearDone: (count: number) => `已清空 ${count} 个云端 key`,
         ClearFailed: "清空云端数据失败",
       },
@@ -333,11 +334,13 @@ const cn = {
       Backup: {
         Title: (limit: number, count: number) =>
           `本地备份（${count}/${limit} 份）`,
+        Open: "打开备份列表",
+        ModalTitle: "本地备份",
         SubTitle:
           "下载 / 同步前会自动存一份；交换是双向的，点错了再点一次就能换回来",
         LimitTitle: (limit: number) => `最多保留 ${limit} 份`,
         LimitSubTitle: (min: number, max: number) =>
-          `可调 ${min} ~ ${max} 份，超出后自动删除最早的一份`,
+          `可调 ${min} ~ ${max} 份；调小时不会立刻删除，下次新建备份时才清理`,
         KindManual: "手动备份",
         KindAuto: "自动备份",
         KindSwap: "交换产生",
@@ -355,6 +358,15 @@ const cn = {
         Failed: "本地备份操作失败",
         FailedWithReason: (reason: string) => `本地备份失败：${reason}`,
       },
+
+      DeleteMissing: {
+        Title: "删除云端已不存在的会话",
+        SubTitle:
+          "勾选后，本次上传会把「本地已删除、云端还有」的会话一并删掉（上传完自动取消勾选）",
+      },
+
+      UploadSuccessDeleted: (count: number) =>
+        `上传完成，并删除了 ${count} 个云端会话`,
 
       Sync: "同步",
       Syncing: "同步中",

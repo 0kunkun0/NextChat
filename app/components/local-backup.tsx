@@ -11,7 +11,6 @@ import {
   onBackupsChanged,
   replaceBackupWithCurrent,
   saveBackup,
-  trimBackups,
   type BackupMeta,
 } from "../utils/backup";
 import { IconButton } from "./button";
@@ -147,12 +146,11 @@ export function LocalBackupSection(props: {
           max={MAX_BACKUP_LIMIT}
           step={1}
           value={limit}
-          onChange={async (e) => {
+          onChange={(e) => {
+            // 只改上限，不立刻删：已经超出上限的备份留到下次新建时再清理，
+            // 避免调小滑块就把刚存好的备份直接抹掉。
             const value = Number(e.currentTarget.value) || limit;
             syncStore.setBackupLimit(value);
-            // 调小上限立即生效：多出来的直接删最早的
-            await trimBackups(value);
-            await refresh();
           }}
         />
       </ListItem>

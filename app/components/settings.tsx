@@ -648,6 +648,13 @@ function SyncItems() {
   /** 备份列表被别处改动时需要刷新，用来触发 LocalBackupSection 重读 */
   const [backupRefreshKey, setBackupRefreshKey] = useState(0);
   const refreshBackups = () => setBackupRefreshKey((n) => n + 1);
+  /** 本地备份改成弹窗显示 */
+  const [showBackupModal, setShowBackupModal] = useState(false);
+  /**
+   * 「删除云端已不存在的会话」：默认关闭，勾选后只对**下一次**上传生效，
+   * 上传完自动取消勾选，避免误删。
+   */
+  const [deleteMissingOnUpload, setDeleteMissingOnUpload] = useState(false);
 
   /** 同步时检测到的冲突，非空时弹出选择框 */
   const [syncConflictState, setSyncConflictState] = useState<{
@@ -767,15 +774,20 @@ function SyncItems() {
             : opts.dropEncryption
             ? { enc: undefined }
             : undefined,
+          // 勾选了「删除云端已不存在的会话」才传，且只对这一次生效
+          deleteMissing: deleteMissingOnUpload,
         },
       );
+      if (deleteMissingOnUpload) setDeleteMissingOnUpload(false);
       syncStore.markUploadTime();
       // 上传成功后云端 == 本地，记为下次同步的基线
       syncStore.markSynced(
         buildSyncedHashes(local?.[StoreKey.Chat]?.sessions ?? []),
       );
-      if (stats.total === 0) {
+      if (stats.total === 0 && stats.deleted === 0) {
         showToast(Locale.Settings.Sync.NothingChanged);
+      } else if (stats.deleted > 0) {
+        showToast(Locale.Settings.Sync.UploadSuccessDeleted(stats.deleted));
       } else if (stats.skipped > 0) {
         showToast(Locale.Settings.Sync.UploadSuccessSkipped(stats.skipped));
       } else {
@@ -1011,6 +1023,8 @@ function SyncItems() {
     const controller = new AbortController();
     setSyncJob({ type: "upload", controller });
     try {
+      // 立刻给个反馈：清空涉及多次请求，不给提示会以为没反应
+      showToast(Locale.Settings.Sync.ForceFull.Clearing);
       const client = createUpstashClient(syncStore, {
         signal: controller.signal,
       });
@@ -1115,6 +1129,22 @@ function SyncItems() {
                   />
                 )}
             </div>
+          </ListItem>
+        )}
+
+        {couldSync && (
+          <ListItem
+            title={Locale.Settings.Sync.DeleteMissing.Title}
+            subTitle={Locale.Settings.Sync.DeleteMissing.SubTitle}
+          >
+            <input
+              type="checkbox"
+              aria-label={Locale.Settings.Sync.DeleteMissing.Title}
+              checked={deleteMissingOnUpload}
+              onChange={(e) =>
+                setDeleteMissingOnUpload(e.currentTarget.checked)
+              }
+            ></input>
           </ListItem>
         )}
 
@@ -1229,11 +1259,67 @@ function SyncItems() {
       </List>
 
       {/*
-        本地备份：下载 / 同步覆盖本地数据之前会自动存一份；
-        恢复做成「交换」——错把正确内容覆盖掉也能再点一次换回来。
+        本地备份改成弹窗入口：不再把一长串备份直接挂在设置页底部。
+        下载 / 同步覆盖本地数据前会自动存一份；恢复做成「交换」。
       */}
-      {/* 本地备份和云同步无关：没配置云端也应该能用 */}
-      <LocalBackupSection refreshKey={backupRefreshKey} />
+      <List>
+        <ListItem
+          title={Locale.Settings.Sync.Backup.Title(syncStore.backupLimit, 0)}
+          subTitle={Locale.Settings.Sync.Backup.SubTitle}
+        >
+          <div style={{ display: "flex" }}>
+            <IconButton
+              text={Locale.Settings.Sync.Backup.Open}
+              disabled={syncJob !== null}
+              onClick={() => setShowBackupModal(true)}
+            />
+            <IconButton
+              icon={<AddIcon />}
+              text={Locale.Settings.Sync.Backup.Create}
+              disabled={syncJob !== null}
+              onClick={async () => {
+                try {
+                  const record = await saveBackup(
+                    getLocalAppState(),
+                    "manual",
+                    syncStore.backupLimit,
+                  );
+                  showToast(
+                    record
+                      ? Locale.Settings.Sync.Backup.CreateDone(record.sessions)
+                      : Locale.Settings.Sync.Backup.Failed,
+                  );
+                } catch (e: any) {
+                  showToast(
+                    Locale.Settings.Sync.Backup.FailedWithReason(
+                      e?.message ?? String(e),
+                    ),
+                  );
+                }
+                refreshBackups();
+              }}
+            />
+          </div>
+        </ListItem>
+      </List>
+
+      {showBackupModal && (
+        <div className="modal-mask">
+          <Modal
+            title={Locale.Settings.Sync.Backup.ModalTitle}
+            onClose={() => setShowBackupModal(false)}
+            actions={[
+              <IconButton
+                key="close"
+                text={Locale.UI.Close}
+                onClick={() => setShowBackupModal(false)}
+              />,
+            ]}
+          >
+            <LocalBackupSection refreshKey={backupRefreshKey} />
+          </Modal>
+        </div>
+      )}
 
       {showSyncConfigModal && (
         <SyncConfigModal onClose={() => setShowSyncConfigModal(false)} />
