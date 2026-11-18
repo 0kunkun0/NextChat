@@ -333,7 +333,7 @@ const cn = {
 
       Backup: {
         Title: (limit: number, count: number) =>
-          `本地备份（${count}/${limit} 份）`,
+          `本地备份`,
         Open: "打开备份列表",
         ModalTitle: "本地备份",
         SubTitle:

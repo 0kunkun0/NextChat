@@ -2,6 +2,7 @@ import {
   getPendingLogs,
   installConsoleHook,
   installErrorHook,
+  compactChatPayload,
   previewText,
   setIncludeContent,
   uninstallConsoleHook,
@@ -77,6 +78,47 @@ describe("debug log console hook", () => {
     expect(console.log).toBe(base);
   });
 
+  test("compactChatPayload 把对话数组压成「条数 + 最后一条末尾」", () => {
+    const payload = {
+      model: "deepseek-chat",
+      temperature: 0.5,
+      messages: [
+        { role: "system", content: "你是一个很长的系统提示词".repeat(20) },
+        { role: "user", content: "中间这条内容不应该出现在日志里" },
+        {
+          role: "assistant",
+          content: "这是最后一条消息，结尾很重要结尾很重要尾十个字",
+        },
+      ],
+    };
+
+    const compacted = compactChatPayload(payload);
+
+    // 元信息保留
+    expect(compacted.model).toBe("deepseek-chat");
+    expect(compacted.temperature).toBe(0.5);
+    // 对话被压成摘要
+    expect(compacted.messages).toBeUndefined();
+    expect(compacted.messagesCount).toBe(3);
+    expect(compacted.messagesLastRole).toBe("assistant");
+    // 只保留最后 10 个字符（末尾带 (+省略字数) 方便判断原文有多长）
+    expect(String(compacted.messagesLastTail)).toContain("尾十个字");
+    expect(String(compacted.messagesLastTail)).toContain("…");
+
+    // 整段序列化后不含任何正文
+    const json = JSON.stringify(compacted);
+    expect(json).not.toContain("中间这条内容");
+    expect(json).not.toContain("你是一个很长的系统提示词");
+  });
+
+  test("compactChatPayload 不会在循环引用上死循环", () => {
+    const payload: any = { model: "m" };
+    payload.self = payload;
+    payload.messages = [{ role: "user", content: "hi" }];
+
+    expect(() => JSON.stringify(compactChatPayload(payload))).not.toThrow();
+  });
+
   test("previewText 受「日志包含对话内容」开关控制", () => {
     const long = "a".repeat(200);
 
@@ -111,10 +153,13 @@ describe("debug log console hook", () => {
     expect(pending.length).toBe(before + 1);
     const text = pending[pending.length - 1].text;
 
-    // 短字段原样保留，长内容只留前 10 个字符
+    // 短字段原样保留；对话被压成「条数 + 最后一条末尾 10 个字」
     expect(text).toContain("gpt-4");
-    expect(text).toContain("这是一段很长的对话内容".slice(0, 10));
+    expect(text).toContain("messagesCount");
+    expect(text).toContain(content.slice(-10));
+    // 整段原文不能出现
     expect(text).not.toContain("这是一段很长的对话内容".repeat(5));
+    expect(text).not.toContain("这是一段很长的对话内容".repeat(2));
     // 带上总长度，方便判断原来有多长
     expect(text).toContain(`(+${content.length - 10})`);
   });

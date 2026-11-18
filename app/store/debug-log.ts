@@ -80,6 +80,54 @@ export function previewText(value: string): string {
 function previewReplacer(_key: string, value: any) {
   return typeof value === "string" ? previewText(value) : value;
 }
+
+/** 只保留末尾 count 个字符 */
+function tailText(value: string, count = PREVIEW_CHARS): string {
+  if (value.length <= count) return value;
+  return `…${value.slice(-count)}(+${value.length - count})`;
+}
+
+/** 对话数组压缩后的递归深度上限（防环） */
+const COMPACT_MAX_DEPTH = 6;
+
+/**
+ * 把日志对象里的「对话数组」压成极简摘要（开关关闭时使用）。
+ *
+ * 请求体里 `messages` 会带上整段上下文，即使每条只留 10 个字符，
+ * 几十条加起来也很长。这里直接换成：
+ *   messagesCount / messagesLastRole / messagesLastTail（最后一条的末尾 10 字）
+ * 这样日志里只剩“发了几条、最后一条是什么结尾”，标题由上传/下载日志里的
+ * sessionTopics 提供，信息够用、体量又小。
+ */
+export function compactChatPayload(
+  value: any,
+  depth = 0,
+  seen: WeakSet<object> = new WeakSet(),
+): any {
+  if (depth > COMPACT_MAX_DEPTH) return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => compactChatPayload(item, depth + 1, seen));
+  }
+  if (!value || typeof value !== "object") return value;
+
+  // 循环引用：直接替换成占位符，避免 JSON.stringify 抛错
+  if (seen.has(value)) return "[circular]";
+  seen.add(value);
+
+  const out: Record<string, any> = {};
+  for (const [key, child] of Object.entries(value)) {
+    if ((key === "messages" || key === "context") && Array.isArray(child)) {
+      const last: any = child[child.length - 1];
+      out[`${key}Count`] = child.length;
+      out[`${key}LastRole`] = last?.role ?? "";
+      out[`${key}LastTail`] =
+        typeof last?.content === "string" ? tailText(last.content) : "";
+      continue;
+    }
+    out[key] = compactChatPayload(child, depth + 1, seen);
+  }
+  return out;
+}
 /** 本地日志上限 */
 export const MAX_LOG_BYTES = 10 * 1024 * 1024;
 /** 丢弃旧日志后回落到这个大小以下 */
@@ -164,7 +212,13 @@ function formatArgs(args: unknown[]) {
       if (arg instanceof Error)
         return arg.stack || `${arg.name}: ${arg.message}`;
       try {
-        return JSON.stringify(arg, previewReplacer);
+        // 没开「日志包含对话内容」时，把 messages 数组压成摘要：
+        // 只留条数 + 最后一条的角色和末尾 10 个字符
+        const prepared =
+          !includeContent && arg && typeof arg === "object"
+            ? compactChatPayload(arg)
+            : arg;
+        return JSON.stringify(prepared, previewReplacer);
       } catch {
         return previewText(String(arg));
       }

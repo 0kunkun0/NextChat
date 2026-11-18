@@ -337,7 +337,7 @@ const en: LocaleType = {
 
       Backup: {
         Title: (limit: number, count: number) =>
-          `Local backups (${count}/${limit})`,
+          `Local backups`,
         Open: "Open backup list",
         ModalTitle: "Local backups",
         SubTitle:
