@@ -304,6 +304,30 @@ describe("upstash incremental upload", () => {
     expect(s2?.messages[0].content).toBe("world");
   });
 
+  test("upload re-chunks a session whose single value is too large to read back", async () => {
+    const server = installFakeUpstash();
+    await client.upload(makeState());
+
+    // 模拟旧版本用大分片存成单 key：索引说 chunked=false，但 size 超过安全上限
+    const index = readIndex(server);
+    const entry = index.sessions.find((s: any) => s.id === "s2");
+    entry.chunked = false;
+    entry.size = 2_000_000;
+    server.kv.set("backup-v2-index", JSON.stringify(index));
+
+    server.writes.length = 0;
+    const stats = await client.upload(makeState());
+
+    // 内容没变，但因为存太大了必须重切（重新编码上传）
+    expect(stats.uploaded).toBe(1);
+    expect(server.writes).toContain("backup-v2-s-s2");
+
+    // 修好之后就不该再反复重传
+    server.writes.length = 0;
+    const again = await client.upload(makeState());
+    expect(again.total).toBe(0);
+  });
+
   test("second upload only writes the session that changed", async () => {
     const server = installFakeUpstash();
     await client.upload(makeState());
@@ -746,14 +770,16 @@ describe("upstash incremental upload", () => {
     }
   });
 
-  test("chunk size is clamped to the Upstash 10MB request limit", () => {
-    // 10240KB = 10MB，正好等于请求上限
-    expect(resolveChunkBytes(10240)).toBe(10 * 1000 * 1000);
-    // 超过上限一律夹回来
-    expect(resolveChunkBytes(20480)).toBe(10 * 1000 * 1000);
+  test("chunk size is clamped to the safe read limit (1MB)", () => {
+    // 实测：单 value 超过 ~2MB 时 Upstash 能 SET 但 GET 会被中断，
+    // 所以上限固定在 1MB（1024KB 也只是 1,048,576 字节 → 再夹到 1,000,000）
+    expect(resolveChunkBytes(1024)).toBe(1000 * 1000);
+    expect(resolveChunkBytes(10240)).toBe(1000 * 1000);
+    expect(resolveChunkBytes(20480)).toBe(1000 * 1000);
     // 太小 / 非法值也要有兜底
     expect(resolveChunkBytes(1)).toBe(16 * 1024);
-    expect(resolveChunkBytes(undefined)).toBe(1024 * 1024);
+    // 默认 1024KB 同样被夹到安全上限
+    expect(resolveChunkBytes(undefined)).toBe(1000 * 1000);
   });
 
   test("chunked is decided by bytes, not by character count", async () => {

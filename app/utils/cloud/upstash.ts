@@ -15,13 +15,23 @@ const UPLOAD_CONCURRENCY = 6;
 /** 单个 value 超过这个字节数才切片（默认值；实际可在设置里调） */
 const CHUNK_BYTES = 1000 * 1000;
 /**
- * Upstash 现在（2026）的限制是：单次请求最大 10MB、单条记录最大 100MB
- * （免费版同样如此）。所以分片上限按 10MB 来，而不是老文档里的 1MB。
+ * 单个 value 能被**安全读回来**的上限。
+ *
+ * 实测（Upstash 免费库，2026-11）：
+ *   0.1MB / 0.5MB / 1MB / 2MB → SET 200，GET 返回完整内容；
+ *   4MB → SET 返回 200，但 GET 会被服务端中断（连接 terminated）。
+ * 也就是说「写得进去」不等于「读得出来」。写 5.9MB 的单个 value 之后，
+ * 下载永远读不到它 —— 表现就是「那条对话在云端蒸发了」。
+ *
+ * 所以单片上限按 1MB 来（也是历史上长期使用的值），
+ * 超出一律切片，保证每一片都能读回来。
  */
-const MAX_CHUNK_BYTES = 10 * 1000 * 1000;
-/** 分片大小可选范围（KB）：16KB ~ 10240KB（=10MB） */
+const SAFE_VALUE_BYTES = 1000 * 1000;
+/** 分片上限：不能超过安全读取上限 */
+const MAX_CHUNK_BYTES = SAFE_VALUE_BYTES;
+/** 分片大小可选范围（KB）：16KB ~ 1024KB（=1MB，保证能读回来） */
 const MIN_CHUNK_KB = 16;
-const MAX_CHUNK_KB = 10240;
+const MAX_CHUNK_KB = 1024;
 /**
  * 防御性清扫时最多扫这么多个分片。
  *
@@ -1017,12 +1027,32 @@ export function createUpstashClient(
        * 数据不在的强制重传。chunked 项检查 `-n`，普通项检查 key 本身。
        */
       const brokenIds = new Set<string>();
+      /** 单项太大、必须重切成片的 key（值存在但读不回来） */
+      const oversizedIds = new Set<string>();
       if (canSkipUnchanged) {
         const candidates: Array<{ id: string; key: string }> = [];
         for (const item of localSessions) {
           const remote = remoteItems.get(item.session.id);
           if (remote?.h !== item.hash) continue;
           const key = sessionKey(item.session.id);
+
+          // 之前用过大分片（比如 1MB 以上）存成单 key 的，改回 1MB 后必须重切：
+          // 值虽然存在，但超过安全读取上限，下载时会读不回来。
+          if (
+            !remote.chunked &&
+            typeof remote.size === "number" &&
+            remote.size > SAFE_VALUE_BYTES
+          ) {
+            oversizedIds.add(item.session.id);
+            brokenIds.add(item.session.id);
+            console.warn(
+              "[Upstash] single value too large to read back, re-chunking:",
+              item.session.id,
+              remote.size,
+            );
+            continue;
+          }
+
           candidates.push({
             id: item.session.id,
             key: remote.chunked ? `${key}-n` : key,

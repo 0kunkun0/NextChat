@@ -606,7 +606,7 @@ function SyncConfigModal(props: { onClose?: () => void }) {
               <input
                 type="range"
                 min={16}
-                max={10240}
+                max={1024}
                 step={16}
                 value={syncStore.upstash.chunkSizeKB ?? 1024}
                 onChange={(e) => {
