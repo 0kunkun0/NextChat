@@ -434,8 +434,14 @@ export function stream(
         finish();
       },
       onerror(e) {
-        options?.onError?.(e);
-        throw e;
+        // 不要 rethrow：fetchEventSource 会把 promise reject 成 unhandled rejection
+        console.error("[ChatAPI] stream error", e);
+        try {
+          options?.onError?.(e);
+        } catch (err) {
+          console.error("[ChatAPI] onError threw", err);
+        }
+        finish();
       },
       openWhenHidden: true,
     });
@@ -572,7 +578,14 @@ export function streamWithThink(
       }
       console.debug("[ChatAPI] end");
       finished = true;
-      options.onFinish(responseText + remainText, responseRes);
+      // responseRes 可能还没拿到（请求直接失败 / 一开始就 abort）：
+      // 兜一个占位 Response，避免调用方 `responseRes.status` 抛 TypeError
+      const response = responseRes ?? new Response(null, { status: 0 });
+      try {
+        options.onFinish(responseText + remainText, response);
+      } catch (e) {
+        console.error("[ChatAPI] onFinish threw", e);
+      }
     }
   };
 
@@ -711,8 +724,16 @@ export function streamWithThink(
         finish();
       },
       onerror(e) {
-        options?.onError?.(e);
-        throw e;
+        // 以前这里 `throw e` 会让 fetchEventSource 的 promise 直接 reject，
+        // 变成一个没人接的 unhandled rejection（浏览器里表现为“偶现崩溃”）。
+        // 现在改成：先上报错误，再正常收尾。
+        console.error("[ChatAPI] stream error", e);
+        try {
+          options?.onError?.(e);
+        } catch (err) {
+          console.error("[ChatAPI] onError threw", err);
+        }
+        finish();
       },
       openWhenHidden: true,
     });

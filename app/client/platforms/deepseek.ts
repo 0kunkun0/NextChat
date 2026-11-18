@@ -198,8 +198,19 @@ export class DeepSeekApi implements LLMApi {
                   },
                 });
               } else {
-                // @ts-ignore
-                runTools[index]["function"]["arguments"] += args;
+                // 增量参数：必须确认那个 index 的 tool 已经存在，
+                // 否则 `runTools[index]["function"]` 会是 undefined → TypeError
+                const target = runTools[index as number];
+                if (target?.function) {
+                  target.function.arguments =
+                    (target.function.arguments ?? "") + (args ?? "");
+                } else {
+                  console.warn(
+                    "[Request] tool_calls delta without a matching tool, ignored:",
+                    index,
+                    args,
+                  );
+                }
               }
             }
             const reasoning = choices[0]?.delta?.reasoning_content;

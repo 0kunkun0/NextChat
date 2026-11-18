@@ -489,12 +489,34 @@ export const useChatStore = createPersistStore(
         let index = get().currentSessionIndex;
         const sessions = get().sessions;
 
+        // 空数组：导入 / 下载 / 合并后可能出现，直接兜一个空会话。
+        // 否则 currentSession() 返回 undefined，后面 `.mask.modelConfig` 立刻 TypeError。
+        if (!sessions || sessions.length === 0) {
+          const fresh = createEmptySession();
+          set(() => ({ sessions: [fresh], currentSessionIndex: 0 }));
+          return fresh;
+        }
+
         if (index < 0 || index >= sessions.length) {
           index = Math.min(sessions.length - 1, Math.max(0, index));
           set(() => ({ currentSessionIndex: index }));
         }
 
         const session = sessions[index];
+
+        /**
+         * 缺 mask 的会话（老数据 / 合并产物 / 被改坏的条目）会让
+         * `currentSession().mask.modelConfig` 抛 TypeError，而且只在**发送消息**
+         * 时才炸，看起来就非常“偶现”。这里就地补齐并写回 state。
+         */
+        if (session && !session.mask) {
+          console.warn("[Chat] session without mask, repairing:", session.id);
+          const repaired = { ...session, mask: createEmptyMask() };
+          const next = sessions.slice();
+          next[index] = repaired;
+          set(() => ({ sessions: next }));
+          return repaired;
+        }
 
         return session;
       },
