@@ -34,6 +34,7 @@ const cn = {
   },
   Chat: {
     SubTitle: (count: number) => `共 ${count} 条对话`,
+    InputRestored: "检测到输入内容被系统误删，已自动恢复",
     EditMessage: {
       Title: "编辑消息记录",
       Topic: {
@@ -332,8 +333,7 @@ const cn = {
       },
 
       Backup: {
-        Title: (limit: number, count: number) =>
-          `本地备份`,
+        Title: (limit: number, count: number) => `本地备份`,
         Open: "打开备份列表",
         ModalTitle: "本地备份",
         SubTitle:

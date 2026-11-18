@@ -68,6 +68,7 @@ import {
 import { useLowMemoryStore } from "../store/low-memory";
 import { useSyncStore } from "../store/sync";
 import { uploadSessionNow } from "../utils/upload-one";
+import { attachInputDiagnostics } from "../utils/input-diag";
 
 import {
   autoGrowTextArea,
@@ -1209,6 +1210,24 @@ function _Chat() {
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [userInput, setUserInput] = useState("");
+
+  /**
+   * iOS 15 的文本框诊断 + 误删兜底。
+   * 选中文字后点系统菜单的「共享 / 翻译 / 查询」，偶尔会把选中的文字吞掉，
+   * 而且 Web 端没有任何事件线索 → 这里把 beforeinput / input / 选区 都记进日志，
+   * 并在「内容大幅变短且最近没按过键」时把原值恢复回来。
+   */
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    return attachInputDiagnostics(el, {
+      label: "chat-input",
+      onSuspect: (restored) => {
+        setUserInput(restored);
+        showToast(Locale.Chat.InputRestored);
+      },
+    });
+  }, []);
   const [isLoading, setIsLoading] = useState(false);
   const { submitKey, shouldSubmit } = useSubmitHandler();
   const scrollRef = useRef<HTMLDivElement>(null);

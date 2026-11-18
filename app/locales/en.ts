@@ -35,6 +35,8 @@ const en: LocaleType = {
   },
   Chat: {
     SubTitle: (count: number) => `${count} messages`,
+    InputRestored:
+      "The system removed your text — it has been restored automatically",
     EditMessage: {
       Title: "Edit All Messages",
       Topic: {
@@ -336,8 +338,7 @@ const en: LocaleType = {
       },
 
       Backup: {
-        Title: (limit: number, count: number) =>
-          `Local backups`,
+        Title: (limit: number, count: number) => `Local backups`,
         Open: "Open backup list",
         ModalTitle: "Local backups",
         SubTitle:
