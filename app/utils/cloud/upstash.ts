@@ -805,7 +805,18 @@ export function createUpstashClient(
         return (await this.redisGet(key)) ?? null;
       }
       const count = Number(await this.redisGet(`${key}-n`));
-      if (!Number.isInteger(count) || count <= 0) return null;
+      if (!Number.isInteger(count) || count <= 0) {
+        // 索引说「已切片」但读不到 -n：有可能实际是单 key 存的
+        // （索引和数据的元信息对不上时会出现），回退读一次，别直接把会话丢了
+        const single = (await this.redisGet(key)) ?? null;
+        if (single !== null) {
+          console.warn(
+            "[Upstash] index says chunked but -n missing, read as single key:",
+            key,
+          );
+        }
+        return single;
+      }
 
       const parts = await Promise.all(
         new Array(count).fill(0).map((_, i) => this.redisGet(`${key}-c${i}`)),
@@ -862,6 +873,29 @@ export function createUpstashClient(
       const sessions = onlyIds
         ? allSessions.filter((session: any) => onlyIds.has(session.id))
         : allSessions;
+
+      /**
+       * 会话 id 去重：同一个 id 出现两次会让索引里出现两条同 id 的条目，
+       * 下载时按 id 组装会把其中一条顶掉（表现就是“那条对话蒸发了”）。
+       * 这里保留第一次出现的，后面的直接跳过并打日志。
+       */
+      const uniqueSessions: any[] = [];
+      const seenSessionIds = new Set<string>();
+      for (const session of sessions) {
+        const id = session?.id;
+        if (typeof id === "string" && id) {
+          if (seenSessionIds.has(id)) {
+            console.warn(
+              "[Upstash] duplicate session id in local state, keeping the first one:",
+              id,
+              session?.topic,
+            );
+            continue;
+          }
+          seenSessionIds.add(id);
+        }
+        uniqueSessions.push(session);
+      }
       const { sessions: _sessions, ...chatMeta } = chat;
       /**
        * lastInput 是输入框里的草稿，属于对话内容。
@@ -893,7 +927,7 @@ export function createUpstashClient(
         return null;
       });
 
-      const considered = sessions.length + storeNames.length;
+      const considered = uniqueSessions.length + storeNames.length;
       // 一点按钮就把总条数报出去：用户立刻能看到 0/N 在动，
       // 而不是先干等「读索引 + 序列化」好几秒。
       onProgress?.(0, considered);
@@ -913,7 +947,7 @@ export function createUpstashClient(
         json: string;
         hash: string;
       }> = [];
-      for (const session of sessions) {
+      for (const session of uniqueSessions) {
         throwIfAborted();
         let json: string;
         let hash: string;
@@ -1227,6 +1261,23 @@ export function createUpstashClient(
       await this.redisSet(indexKey, indexBytes);
       const indexSetMs = Date.now() - indexSetStartedAt;
 
+      /**
+       * 这次真正写上去的会话标题。
+       * 「某条对话到底传没传」以前只能靠肉眼翻 key，这里直接列出来。
+       */
+      const sessionKeyPrefix = sessionKey("");
+      const topicById = new Map<string, string>(
+        localSessions.map((item) => [
+          item.session.id,
+          String(item.session.topic ?? ""),
+        ]),
+      );
+      const uploadedTopics = [...small, ...big]
+        .map((item) => item.key)
+        .filter((key) => key.startsWith(sessionKeyPrefix))
+        .map((key) => key.slice(sessionKeyPrefix.length))
+        .map((id) => topicById.get(id) ?? id);
+
       console.log(
         `[Upstash] incremental upload: ${done}/${total} item(s) in ${
           Date.now() - startedAt
@@ -1238,6 +1289,8 @@ export function createUpstashClient(
           encodeMs,
           writeMs,
           indexSetMs,
+          // 这次实际上传的会话标题（没变被跳过的不列）
+          sessionTopics: uploadedTopics,
           // 请求数与上行数据量：慢的时候先看这两个
           requests: requestCount,
           writeRequests: requestCount - requestsBeforeWrite,
@@ -1377,6 +1430,29 @@ export function createUpstashClient(
             }
           }
 
+          /**
+           * 读失败时用本地副本兜底：
+           * 下载是「整体覆盖本地」，某条会话一旦读不到就被丢掉的话，
+           * 它在本地也会跟着消失（用户看到的就是“那条对话蒸发了”）。
+           * 本地还有这份副本就先用它顶上，至少不会丢。
+           */
+          const fallbackToLocal = (item: RemoteItem, reason: string) => {
+            const local = localHashes.get(item.id);
+            if (local?.item) {
+              console.warn(
+                `[Upstash] ${reason}, falling back to the local copy:`,
+                item.id,
+                local.item?.topic,
+              );
+              sessionsById.set(item.id, local.item);
+            } else {
+              console.error(
+                `[Upstash] ${reason}, and no local copy to fall back to:`,
+                item.id,
+              );
+            }
+          };
+
           // 小项合批读（并发跑），大项/分片项逐个读
           const smallItems = toFetch.filter(
             (item) =>
@@ -1412,14 +1488,17 @@ export function createUpstashClient(
                     () => null,
                   )) as any;
                 }
-                if (typeof raw !== "string") return;
+                if (typeof raw !== "string") {
+                  fallbackToLocal(item, "missing session payload");
+                  return;
+                }
                 try {
                   sessionsById.set(item.id, await decodeSession(raw, item.gz));
                 } catch (e: any) {
                   if (String(e?.message ?? "").startsWith("DECRYPT_FAILED")) {
                     throw e;
                   }
-                  console.warn("[Upstash] failed to parse session", item.id);
+                  fallbackToLocal(item, "failed to parse session");
                 }
               }),
             );
@@ -1439,7 +1518,9 @@ export function createUpstashClient(
                 raw = await this.readValue(key, true).catch(() => null);
               }
               if (!raw) {
-                console.warn("[Upstash] missing session in remote", item.id);
+                fallbackToLocal(item, "missing session in remote");
+                readDone += 1;
+                reportRead();
                 return;
               }
               try {
@@ -1448,7 +1529,7 @@ export function createUpstashClient(
                 if (String(e?.message ?? "").startsWith("DECRYPT_FAILED")) {
                   throw e;
                 }
-                console.warn("[Upstash] failed to parse session", item.id);
+                fallbackToLocal(item, "failed to parse session");
               }
               readDone += 1;
               reportRead();
@@ -1512,6 +1593,17 @@ export function createUpstashClient(
             .map((item) => sessionsById.get(item.id))
             .filter(Boolean);
 
+          // 下载完做一次对账：索引里有、结果里没有的会话要留下痕迹
+          const missingIds = remoteSessions
+            .filter((item) => !sessionsById.has(item.id))
+            .map((item) => item.id);
+          if (missingIds.length > 0) {
+            console.error(
+              "[Upstash] sessions missing after download:",
+              missingIds,
+            );
+          }
+
           console.log(
             `[Upstash] download v2: ${sessions.length} session(s), ${
               Object.keys(stores).length
@@ -1523,6 +1615,14 @@ export function createUpstashClient(
               localHashMs: hashMs,
               dataMs: Date.now() - startedAt - indexMs - hashMs,
               direct: preferDirect && !forceProxy,
+              // 这次下载涉及的会话标题（跳过 + 实际拉取的都列出来）
+              sessionTopics: sessions.map(
+                (session: any) => session?.topic ?? "",
+              ),
+              fetchedTopics: toFetch.map(
+                (item) => sessionsById.get(item.id)?.topic ?? item.id,
+              ),
+              missingIds,
             },
           );
           // 老索引里可能还留着 lastInput（草稿）：读的时候忽略，

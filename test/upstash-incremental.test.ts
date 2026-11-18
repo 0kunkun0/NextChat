@@ -202,6 +202,80 @@ describe("upstash incremental upload", () => {
     expect(server.writes).toContain("backup-v2-index");
   });
 
+  test("duplicate session ids are collapsed on upload", async () => {
+    const server = installFakeUpstash();
+    const state = makeState();
+    // 同一个 id 出现两次（历史上出现过，会让下载时互相顶掉）
+    (state[StoreKey.Chat] as any).sessions = [
+      makeSession("dup", "first"),
+      makeSession("dup", "second"),
+    ];
+
+    await client.upload(state);
+
+    const ids = readIndex(server).sessions.map((s: any) => s.id);
+    expect(ids).toEqual(["dup"]);
+  });
+
+  test("download keeps the local copy when the remote payload is gone", async () => {
+    const server = installFakeUpstash();
+    await client.upload(makeState());
+
+    // 云端 s2 的 key 丢了（索引里还有）
+    server.kv.delete("backup-v2-s-s2");
+
+    // 本地改过 s2（哈希不同 → 会尝试重新拉取），但本地副本还在
+    const local = makeState("hello", "world edited locally");
+    const restored = await client.download(local);
+
+    const s2 = (restored as any)[StoreKey.Chat].sessions.find(
+      (s: any) => s.id === "s2",
+    );
+    // 没有直接丢掉，而是用本地副本兜底
+    expect(s2).toBeTruthy();
+    expect(s2.messages[0].content).toBe("world edited locally");
+  });
+
+  test("download recovers a session whose index says chunked but data is a single key", async () => {
+    const savedCompression = (globalThis as any).CompressionStream;
+    const savedDecompression = (globalThis as any).DecompressionStream;
+    delete (globalThis as any).CompressionStream;
+    delete (globalThis as any).DecompressionStream;
+
+    try {
+      const server = installFakeUpstash();
+      const smallChunks = createUpstashClient(
+        makeSyncStore({ chunkSizeKB: 16 }),
+      );
+      const big = "word ".repeat(40_000); // 约 200KB，会被切片
+      await smallChunks.upload(makeState(big));
+
+      // 把分片拼回单 key，删掉 -n 和所有分片：模拟“索引说切片、实际是单 key”
+      const count = Number(server.kv.get("backup-v2-s-s1-n"));
+      expect(count).toBeGreaterThan(1);
+      let payload = "";
+      for (let i = 0; i < count; i++) {
+        payload += server.kv.get(`backup-v2-s-s1-c${i}`) ?? "";
+        server.kv.delete(`backup-v2-s-s1-c${i}`);
+      }
+      server.kv.set("backup-v2-s-s1", payload);
+      server.kv.delete("backup-v2-s-s1-n");
+
+      // forceFull 强制真的去读，走 readValue 的回退分支
+      const restored = await smallChunks.download(undefined, undefined, {
+        forceFull: true,
+      });
+      expect(
+        (restored as any)[StoreKey.Chat].sessions.find(
+          (s: any) => s.id === "s1",
+        ).messages[0].content,
+      ).toBe(big);
+    } finally {
+      (globalThis as any).CompressionStream = savedCompression;
+      (globalThis as any).DecompressionStream = savedDecompression;
+    }
+  });
+
   test("second upload only writes the session that changed", async () => {
     const server = installFakeUpstash();
     await client.upload(makeState());
