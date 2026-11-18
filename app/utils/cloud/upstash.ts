@@ -1006,6 +1006,60 @@ export function createUpstashClient(
       const canSkipUnchanged =
         !options?.forceFull && !reencodeAll && !needsRepair;
 
+      /**
+       * 自愈：索引说「这条已经同步过了」，但对应的数据 key 其实不存在。
+       *
+       * 这种情况真实发生过：索引被写成 chunked、数据却在某次清理里被删掉，
+       * 之后每次上传都会因为「哈希一样」跳过它 —— 云端永远缺这一条，
+       * 下载时就是用户看到的「那条对话变成虚无」。
+       *
+       * 这里用一次 pipeline（每项一条 EXISTS）把“该跳过”的项核对一遍，
+       * 数据不在的强制重传。chunked 项检查 `-n`，普通项检查 key 本身。
+       */
+      const brokenIds = new Set<string>();
+      if (canSkipUnchanged) {
+        const candidates: Array<{ id: string; key: string }> = [];
+        for (const item of localSessions) {
+          const remote = remoteItems.get(item.session.id);
+          if (remote?.h !== item.hash) continue;
+          const key = sessionKey(item.session.id);
+          candidates.push({
+            id: item.session.id,
+            key: remote.chunked ? `${key}-n` : key,
+          });
+        }
+        for (const item of localStores) {
+          const remote = remoteItems.get(item.name);
+          if (remote?.h !== item.hash) continue;
+          candidates.push({
+            id: item.name,
+            key: storeItemKey(item.name),
+          });
+        }
+
+        if (candidates.length > 0) {
+          try {
+            const results = await this.pipeline(
+              candidates.map((item) => ["EXISTS", item.key]),
+            );
+            results.forEach((result: any, index: number) => {
+              const exists = Number(result?.result ?? 0) > 0;
+              if (!exists) brokenIds.add(candidates[index].id);
+            });
+            if (brokenIds.size > 0) {
+              console.warn(
+                "[Upstash] index says synced but data is missing, re-uploading:",
+                Array.from(brokenIds),
+              );
+            }
+          } catch (e) {
+            // 校验失败不影响正常上传，只是少了自愈能力
+            console.warn("[Upstash] failed to verify remote data", e);
+          }
+        }
+      }
+      const repairedIds = new Set<string>();
+
       const sessionItems: RemoteItem[] = [];
       const storeItems: RemoteItem[] = [];
       const small: Array<{ key: string; payload: string; gz: boolean }> = [];
@@ -1026,7 +1080,8 @@ export function createUpstashClient(
         const remote = remoteItems.get(id);
 
         // 远端已经有完全一样的内容：不重传，索引里沿用远端记录的存储方式
-        if (canSkipUnchanged && remote?.h === hash) {
+        // （但数据 key 已经丢失的项不算“已有”，走下面的重传逻辑）
+        if (canSkipUnchanged && remote?.h === hash && !brokenIds.has(id)) {
           return {
             id,
             chunked: remote.chunked,
@@ -1034,6 +1089,14 @@ export function createUpstashClient(
             h: hash,
             size: remote.size ?? json.length,
           } as RemoteItem;
+        }
+        if (brokenIds.has(id)) {
+          repairedIds.add(id);
+          console.warn(
+            "[Upstash] repairing missing cloud data:",
+            id,
+            (json.match(/"topic":"([^"]*)"/) ?? [])[1] ?? "",
+          );
         }
 
         const { payload, gz } = await encodePayload(json, compress);
@@ -1291,6 +1354,10 @@ export function createUpstashClient(
           indexSetMs,
           // 这次实际上传的会话标题（没变被跳过的不列）
           sessionTopics: uploadedTopics,
+          // 索引说已同步、但云端数据丢失，这次自动补传的会话
+          repairedTopics: Array.from(repairedIds).map(
+            (id) => topicById.get(id) ?? id,
+          ),
           // 请求数与上行数据量：慢的时候先看这两个
           requests: requestCount,
           writeRequests: requestCount - requestsBeforeWrite,

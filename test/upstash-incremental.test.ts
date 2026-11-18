@@ -105,6 +105,10 @@ function installFakeUpstash(
           }
           return { result: count };
         }
+        if (command[0] === "EXISTS") {
+          // 上传时的自愈校验会用它确认数据还在不在
+          return { result: command.slice(1).filter((k) => kv.has(k)).length };
+        }
         gets.push(command[1]);
         return { result: kv.has(command[1]) ? kv.get(command[1])! : null };
       });
@@ -274,6 +278,30 @@ describe("upstash incremental upload", () => {
       (globalThis as any).CompressionStream = savedCompression;
       (globalThis as any).DecompressionStream = savedDecompression;
     }
+  });
+
+  test("upload repairs a session whose cloud data disappeared behind the index", async () => {
+    const server = installFakeUpstash();
+    const state = makeState();
+    // 先正常传一次
+    await client.upload(state);
+
+    // 模拟“索引说已同步，但数据 key 被清掉了”
+    server.kv.delete("backup-v2-s-s2");
+
+    server.writes.length = 0;
+    const stats = await client.upload(makeState());
+
+    // 内容没变，但自愈逻辑应该把它重新写上去
+    expect(stats.uploaded).toBe(1);
+    expect(server.writes).toContain("backup-v2-s-s2");
+
+    // 现在下载能拿到它了
+    const restored = await client.download();
+    const s2 = (restored as any)[StoreKey.Chat].sessions.find(
+      (s: any) => s.id === "s2",
+    );
+    expect(s2?.messages[0].content).toBe("world");
   });
 
   test("second upload only writes the session that changed", async () => {
