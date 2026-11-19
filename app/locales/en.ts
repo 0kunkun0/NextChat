@@ -407,6 +407,8 @@ const en: LocaleType = {
         UnlockTitle: "Enter encryption password",
         UnlockTip:
           "The cloud backup is encrypted — the password is required to decrypt it.",
+        UnlockTipMismatch:
+          "This cloud backup was encrypted with different parameters (probably encryption was enabled on another device). Enter that backup's password; the key remembered on this device does not apply.",
         SetTip:
           "The password never leaves this device — it only derives the key locally. " +
           "If you forget it, the cloud data cannot be recovered.\n",

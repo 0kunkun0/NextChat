@@ -281,38 +281,54 @@ export function isAbortError(error: any) {
 }
 
 /**
- * 直连失败过一次就记住（跨 client 实例、跨页面刷新），
- * 避免每次点同步都先撞一次跨域/超时再回退。
+ * 直连失败后进入冷却（跨 client 实例、跨页面刷新），
+ * 冷却结束会重新尝试直连。
+ *
+ * 以前是「失败一次就永久走代理」——结果一次网络抖动就让这台设备
+ * 之后所有同步都绕道代理（Cloudflare → Railway → Upstash），
+ * 上传 7MB 要 20 秒。现在冷却 10 分钟后自动重试。
  */
-const DIRECT_FLAG_KEY = "upstash-direct-unavailable";
+const DIRECT_FLAG_KEY = "upstash-direct-unavailable-until";
+/** 直连失败后的冷却时间 */
+const DIRECT_COOLDOWN_MS = 10 * 60 * 1000;
 
-function readDirectUnavailable() {
+function readDirectCooldownUntil(): number {
   try {
-    return window.localStorage.getItem(DIRECT_FLAG_KEY) === "1";
+    const raw = window.localStorage.getItem(DIRECT_FLAG_KEY);
+    // 兼容老版本写的 "1"
+    if (!raw || raw === "1") return 0;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : 0;
   } catch {
-    return false;
+    return 0;
   }
 }
 
-function saveDirectUnavailable() {
+function saveDirectCooldown(until: number) {
   try {
-    window.localStorage.setItem(DIRECT_FLAG_KEY, "1");
+    window.localStorage.setItem(DIRECT_FLAG_KEY, String(until));
   } catch {
     // 隐私模式写不进去，至少本次会话内有效
   }
 }
 
-let directUnavailable =
-  typeof window === "undefined" ? false : readDirectUnavailable();
+let directCooldownUntil =
+  typeof window === "undefined" ? 0 : readDirectCooldownUntil();
 
 /**
- * 直连最多等这么久。
+ * 直连超时：**按请求体大小算**。
  *
- * 有些网络环境访问 *.upstash.io 会一直卡在 TLS/连接阶段（不是立刻报错），
- * 不设超时的话第一次同步就得干等浏览器网络栈自己超时（好几秒甚至更久），
- * 之后再退回代理。这里主动掐断，快速回退。
+ * 以前固定 2.5 秒，结果手机上一个 1MB 分片（慢速蜂窝要十几秒）永远超时，
+ * 一次超时就把直连永久打成「不可用」，之后所有同步都绕道代理——
+ * 这就是「主力机上传 7MB 要 20 秒、直连请求数一直是 0」的原因。
+ *
+ * 现在：基础 10 秒，再按每 50KB 加 1 秒（相当于最低 50KB/s），上限 60 秒。
+ * 只有真正连不上（连接阶段就失败）才会回退代理。
  */
-const DIRECT_TIMEOUT_MS = 2500;
+function directTimeoutFor(body?: BodyInit | null): number {
+  const bytes = typeof body === "string" ? body.length : 0;
+  return Math.min(60_000, 10_000 + Math.ceil(bytes / 50_000) * 1000);
+}
 
 /** 分片大小（字节）：夹到 [16KB, 10MB]，并且不超过单次请求上限 */
 export function resolveChunkBytes(chunkSizeKB?: number): number {
@@ -342,6 +358,17 @@ export function createUpstashClient(
   /** 直连 / 走代理的请求数；排查“是不是每次都在撞直连超时” */
   let directCount = 0;
   let proxyCount = 0;
+
+  /**
+   * 索引的短时缓存。
+   *
+   * 一次同步里索引会被读两次：先由 ensureBundle（判断加密参数）读一次，
+   * 上传 / 下载自己再读一次拿哈希。在跨洋链路上这是一整趟往返，
+   * 10 秒内复用同一份结果即可，写索引时立即失效。
+   */
+  const INDEX_CACHE_MS = 10_000;
+  let indexRawCache: { at: number; raw: string | null } | null = null;
+
   /** 实际要上传的原始 JSON 长度 / 压缩后长度，用来算压缩比 */
   let rawCharsToUpload = 0;
   let payloadCharsToUpload = 0;
@@ -485,7 +512,7 @@ export function createUpstashClient(
         throw error;
       }
 
-      if (!preferDirect || forceProxy || directUnavailable) {
+      if (!preferDirect || forceProxy || directCooldownUntil > Date.now()) {
         proxyCount += 1;
         return fetch(this.path(path, proxyUrl), init as RequestInit);
       }
@@ -496,7 +523,7 @@ export function createUpstashClient(
       const timer = setTimeout(() => {
         timedOut = true;
         controller.abort();
-      }, DIRECT_TIMEOUT_MS);
+      }, directTimeoutFor(init.body));
       const onAbort = () => controller.abort();
       init.signal?.addEventListener?.("abort", onAbort, { once: true });
 
@@ -519,9 +546,9 @@ export function createUpstashClient(
           e,
         );
         forceProxy = true;
-        // 记住这次失败（含页面刷新），别每次冷启动都再撞一次
-        directUnavailable = true;
-        saveDirectUnavailable();
+        // 记住这次失败（含页面刷新），冷却结束后会重新尝试直连
+        directCooldownUntil = Date.now() + DIRECT_COOLDOWN_MS;
+        saveDirectCooldown(directCooldownUntil);
         proxyCount += 1;
         return fetch(this.path(path, proxyUrl), init as RequestInit);
       } finally {
@@ -928,7 +955,7 @@ export function createUpstashClient(
       // 注意：取消时不能让这个 promise 变成“未处理的 rejection”——
       // 下面序列化阶段有 await，期间没人接住就会被判成 unhandled。
       let indexAbortError: unknown = null;
-      const indexPromise = this.redisGet(indexKey).catch((e) => {
+      const indexPromise = this.readIndexRaw().catch((e) => {
         if (isAbortError(e)) {
           indexAbortError = e;
           return null;
@@ -938,9 +965,14 @@ export function createUpstashClient(
       });
 
       const considered = uniqueSessions.length + storeNames.length;
-      // 一点按钮就把总条数报出去：用户立刻能看到 0/N 在动，
-      // 而不是先干等「读索引 + 序列化」好几秒。
-      onProgress?.(0, considered);
+      /**
+       * 进度只统计「真正要传的条数」。
+       *
+       * 以前把准备阶段也算进总数：14 条里 11 条没变、3 条要传，
+       * 点一下按钮进度就直接是 14/17（82%），然后卡十几秒，看着像卡死。
+       * 现在准备阶段不报数，写入阶段从 0/N 开始数。
+       */
+      onProgress?.(0, 0);
 
       const hashStartedAt = Date.now();
       let prepared = 0;
@@ -970,7 +1002,7 @@ export function createUpstashClient(
           hash = hashString(json);
         }
         localSessions.push({ session, json, hash });
-        onProgress?.(++prepared, considered);
+        prepared += 1;
         await yieldIfNeeded();
       }
 
@@ -979,7 +1011,6 @@ export function createUpstashClient(
         return { name, json, hash: hashString(json) };
       });
       prepared += localStores.length;
-      onProgress?.(prepared, considered);
       const hashMs = Date.now() - hashStartedAt;
 
       // - 云端没有索引（换了库 / 被清空）→ 全部重传；
@@ -1257,9 +1288,8 @@ export function createUpstashClient(
       }
 
       let done = 0;
-      // 扫描阶段占了 considered 个进度，写阶段接着往上加，进度条只增不减
-      const reportWrite = () =>
-        onProgress?.(considered + done, considered + total);
+      // 只统计真正要写上去的条数：进度条从 0/N 开始，不会再一上来就跳到大半
+      const reportWrite = () => onProgress?.(done, total);
 
       const writeStartedAt = Date.now();
       const requestsBeforeWrite = requestCount;
@@ -1352,6 +1382,7 @@ export function createUpstashClient(
       const indexBytes = JSON.stringify(index);
       const indexSetStartedAt = Date.now();
       await this.redisSet(indexKey, indexBytes);
+      this.invalidateIndexCache();
       const indexSetMs = Date.now() - indexSetStartedAt;
 
       /**
@@ -1418,6 +1449,7 @@ export function createUpstashClient(
           compress,
           nativeCompress: hasNativeCompression(),
           direct: preferDirect && !forceProxy,
+          directCooldownMsLeft: Math.max(0, directCooldownUntil - Date.now()),
         },
       );
       return {
@@ -1465,7 +1497,7 @@ export function createUpstashClient(
       // 索引请求先发出去，等它的时候顺带把本地哈希算完
       // （取消时同样不能留下未处理的 rejection，见 upload 里的说明）
       let indexAbortError: unknown = null;
-      const indexPromise = this.redisGet(indexKey).catch((e) => {
+      const indexPromise = this.readIndexRaw().catch((e) => {
         if (isAbortError(e)) {
           indexAbortError = e;
           return null;
@@ -1559,9 +1591,10 @@ export function createUpstashClient(
           );
           const bigItems = toFetch.filter((item) => !smallItems.includes(item));
 
-          // 跳过的项算“已完成”，进度条直接从跳过的数量起步
-          const readTotal = remoteSessions.length;
-          let readDone = skipped;
+          // 只统计真正要拉取的条数：跳过的（本地已有相同内容）不计入，
+          // 否则进度会从「跳过数/总数」开始，看着像一开始就快完成了
+          const readTotal = smallItems.length + bigItems.length;
+          let readDone = 0;
           const reportRead = () => onProgress?.(readDone, readTotal);
           reportRead();
 
@@ -1712,6 +1745,10 @@ export function createUpstashClient(
               localHashMs: hashMs,
               dataMs: Date.now() - startedAt - indexMs - hashMs,
               direct: preferDirect && !forceProxy,
+              directCooldownMsLeft: Math.max(
+                0,
+                directCooldownUntil - Date.now(),
+              ),
               // 这次下载涉及的会话标题（跳过 + 实际拉取的都列出来）
               sessionTopics: sessions.map(
                 (session: any) => session?.topic ?? "",
@@ -1750,12 +1787,30 @@ export function createUpstashClient(
     },
 
     /**
+     * 读索引原文（10 秒内复用）。
+     * 上传 / 下载 / 读加密参数都走这里，避免一次同步读两遍索引。
+     */
+    async readIndexRaw(): Promise<string | null> {
+      const now = Date.now();
+      if (indexRawCache && now - indexRawCache.at < INDEX_CACHE_MS) {
+        return indexRawCache.raw;
+      }
+      const raw = (await this.redisGet(indexKey).catch(() => null)) ?? null;
+      indexRawCache = { at: now, raw };
+      return raw;
+    },
+
+    invalidateIndexCache() {
+      indexRawCache = null;
+    },
+
+    /**
      * 只读索引里的小部分元信息（加密参数）。
      * 下载 / 同步前要先知道云端是不是加密的、用什么 salt，
      * 才能派生密钥并解密。
      */
     async readIndexMeta(): Promise<{ enc?: any } | null> {
-      const raw = await this.redisGet(indexKey).catch(() => null);
+      const raw = await this.readIndexRaw();
       if (!raw) return null;
       try {
         const index = JSON.parse(raw);
