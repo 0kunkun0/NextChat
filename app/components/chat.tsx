@@ -1212,6 +1212,15 @@ function _Chat() {
   const [userInput, setUserInput] = useState("");
 
   /**
+   * 当前输入框的「应有值」。
+   * 发送后清空、载入提示词、引用消息都是我们主动改的，不会触发 input 事件，
+   * 诊断逻辑需要靠它区分「我们自己改的」和「被系统吞掉的」。
+   * 渲染期直接同步赋值，避免和 400ms 的静默检测抢时序。
+   */
+  const userInputRef = useRef(userInput);
+  userInputRef.current = userInput;
+
+  /**
    * iOS 15 的文本框诊断 + 误删兜底。
    * 选中文字后点系统菜单的「共享 / 翻译 / 查询」，偶尔会把选中的文字吞掉，
    * 而且 Web 端没有任何事件线索 → 这里把 beforeinput / input / 选区 都记进日志，
@@ -1222,6 +1231,7 @@ function _Chat() {
     if (!el) return;
     return attachInputDiagnostics(el, {
       label: "chat-input",
+      getExpectedValue: () => userInputRef.current,
       onSuspect: (restored) => {
         setUserInput(restored);
         showToast(Locale.Chat.InputRestored);

@@ -97,6 +97,59 @@ describe("attachInputDiagnostics", () => {
     jest.useRealTimers();
   });
 
+  test("发送后清空输入框不会被兜底逻辑还原回来", () => {
+    jest.useFakeTimers();
+    const original = "这是要发送的一段文字，发送后应该清空";
+    const el = makeTextarea(original);
+    const onSuspect = jest.fn();
+
+    // 模拟受控组件的 state
+    let state = original;
+    const detach = attachInputDiagnostics(el, {
+      onSuspect,
+      getExpectedValue: () => state,
+    });
+
+    el.dispatchEvent(new FocusEvent("focus"));
+
+    // 发送：应用自己把 state 和 DOM 都清空（不会派发 input 事件）
+    state = "";
+    el.value = "";
+
+    jest.advanceTimersByTime(1000);
+
+    expect(onSuspect).not.toHaveBeenCalled();
+    expect(el.value).toBe("");
+
+    detach();
+    jest.useRealTimers();
+  });
+
+  test("系统静默吞掉内容时（state 仍是原文）仍然会恢复", () => {
+    jest.useFakeTimers();
+    const original = "这是一段比较长的输入内容，用来模拟被系统吞掉";
+    const el = makeTextarea(original);
+    const onSuspect = jest.fn();
+
+    // state 没变，只有 DOM 被系统改了 → 应该恢复
+    let state = original;
+    const detach = attachInputDiagnostics(el, {
+      onSuspect,
+      getExpectedValue: () => state,
+    });
+
+    el.dispatchEvent(new FocusEvent("focus"));
+    el.value = "这是一段";
+
+    jest.advanceTimersByTime(500);
+
+    expect(onSuspect).toHaveBeenCalledTimes(1);
+    expect(el.value).toBe(original);
+
+    detach();
+    jest.useRealTimers();
+  });
+
   test("detach 之后不再监听", () => {
     const el = makeTextarea("这是一段比较长的输入内容");
     const onSuspect = jest.fn();

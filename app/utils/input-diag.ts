@@ -24,6 +24,14 @@ type DiagnosticOptions = {
   onSuspect?: (restoredValue: string) => void;
   /** 标签，方便区分是哪个输入框 */
   label?: string;
+  /**
+   * 返回「应用认为当前应该是什么值」（也就是受控组件的 state）。
+   *
+   * 清空输入框（发送消息）、载入提示词、引用消息这些都是**我们主动**改的值，
+   * 不会触发 input 事件，看起来和"被系统吞掉"一模一样。
+   * 有了这个回调就能区分：DOM 值和 state 一致 → 是我们自己改的，直接接受。
+   */
+  getExpectedValue?: () => string;
 };
 
 export function attachInputDiagnostics(
@@ -37,6 +45,15 @@ export function attachInputDiagnostics(
     end: el.selectionEnd ?? 0,
   };
   let lastManualKeyAt = 0;
+
+  /** DOM 的值和应用状态一致 → 是我们自己改的（发送清空等），不是系统误删 */
+  const matchesAppState = () => {
+    try {
+      return options.getExpectedValue?.() === el.value;
+    } catch {
+      return false;
+    }
+  };
 
   const log = (message: string, payload?: any) => {
     // 用 console.debug：既会在控制台可见，也会被调试日志钩子记录
@@ -81,6 +98,12 @@ export function attachInputDiagnostics(
   const onInput = () => {
     const nextValue = el.value;
     syncSelection();
+
+    // 值和 state 一致 → 是我们自己（React）改的，比如发送后清空
+    if (matchesAppState()) {
+      lastValue = nextValue;
+      return;
+    }
 
     const shrink = lastValue.length - nextValue.length;
     const manual = Date.now() - lastManualKeyAt < MANUAL_KEY_WINDOW_MS;
@@ -142,6 +165,13 @@ export function attachInputDiagnostics(
     if (el.value === lastValue) return;
 
     const silentValue = el.value;
+
+    // 和 state 一致 → 是我们自己（React）改的，比如发送后清空输入框
+    if (matchesAppState()) {
+      lastValue = silentValue;
+      return;
+    }
+
     console.warn("[Input] silent value change without input event", {
       label,
       from: lastValue.length,
@@ -150,7 +180,10 @@ export function attachInputDiagnostics(
       value: snapshot(silentValue),
     });
 
-    if (lastValue.length - silentValue.length >= SUSPICIOUS_SHRINK) {
+    // 刚按过键（回车发送、退格等）就不当成系统误删
+    const manual = Date.now() - lastManualKeyAt < MANUAL_KEY_WINDOW_MS;
+
+    if (!manual && lastValue.length - silentValue.length >= SUSPICIOUS_SHRINK) {
       console.warn("[Input] restoring after silent shrink", { label });
       el.value = lastValue;
       try {
