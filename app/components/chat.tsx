@@ -67,6 +67,8 @@ import {
 } from "../store";
 import { useLowMemoryStore } from "../store/low-memory";
 import { useSyncStore } from "../store/sync";
+import { useKnowledgeStore } from "../store/knowledge";
+import { showKnowledgePreview } from "./knowledge-preview";
 import { uploadSessionNow } from "../utils/upload-one";
 import { attachInputDiagnostics } from "../utils/input-diag";
 import { getPortalHost } from "../utils/portal";
@@ -252,15 +254,59 @@ export function SessionConfigModel(props: { onClose: () => void }) {
           }}
           shouldSyncFromGlobal
           extraListItems={
-            session.mask.modelConfig.sendMemory ? (
+            <>
+              {session.mask.modelConfig.sendMemory ? (
+                <ListItem
+                  className="copyable"
+                  title={`${Locale.Memory.Title} (${session.lastSummarizeIndex} of ${session.messages.length})`}
+                  subTitle={session.memoryPrompt || Locale.Memory.EmptyContent}
+                ></ListItem>
+              ) : null}
+
+              {/* 会话级知识库开关：默认关闭；开启后才会在发送时检索 */}
               <ListItem
-                className="copyable"
-                title={`${Locale.Memory.Title} (${session.lastSummarizeIndex} of ${session.messages.length})`}
-                subTitle={session.memoryPrompt || Locale.Memory.EmptyContent}
-              ></ListItem>
-            ) : (
-              <></>
-            )
+                title={Locale.Chat.Knowledge.Enable}
+                subTitle={Locale.Chat.Knowledge.EnableSubTitle}
+              >
+                <input
+                  type="checkbox"
+                  aria-label={Locale.Chat.Knowledge.Enable}
+                  checked={!!session.knowledge?.enabled}
+                  onChange={(e) => {
+                    const enabled = e.currentTarget.checked;
+                    chatStore.updateTargetSession(session, (session) => {
+                      session.knowledge = {
+                        ...session.knowledge,
+                        enabled,
+                      };
+                    });
+                    if (enabled) void useKnowledgeStore.getState().refresh();
+                  }}
+                />
+              </ListItem>
+
+              {session.knowledge?.enabled && (
+                <ListItem
+                  title={Locale.Chat.Knowledge.DebugPreview}
+                  subTitle={Locale.Chat.Knowledge.DebugPreviewSubTitle}
+                >
+                  <input
+                    type="checkbox"
+                    aria-label={Locale.Chat.Knowledge.DebugPreview}
+                    checked={!!session.knowledge?.debugPreview}
+                    onChange={(e) => {
+                      const debugPreview = e.currentTarget.checked;
+                      chatStore.updateTargetSession(session, (session) => {
+                        session.knowledge = {
+                          ...session.knowledge,
+                          debugPreview,
+                        };
+                      });
+                    }}
+                  />
+                </ListItem>
+              )}
+            </>
           }
         ></MaskConfig>
       </Modal>
@@ -1368,7 +1414,7 @@ function _Chat() {
     }
   };
 
-  const doSubmit = (userInput: string) => {
+  const doSubmit = async (userInput: string) => {
     if (
       userInput.trim() === "" &&
       isEmpty(attachImages) &&
@@ -1383,9 +1429,58 @@ function _Chat() {
       matchCommand.invoke();
       return;
     }
+
+    /**
+     * 知识库检索（会话级开关，默认关闭）。
+     *
+     * 检索必须发生在「清空输入框」之前，因为调试模式下用户可能取消：
+     * 取消时要把输入原样留在框里，也不能发请求。
+     */
+    let knowledge:
+      | {
+          text: string;
+          sections: Array<{
+            headingPath: string;
+            docName: string;
+            chars: number;
+          }>;
+          tokens: number;
+        }
+      | undefined;
+
+    if (session.knowledge?.enabled) {
+      try {
+        const result = await useKnowledgeStore.getState().retrieve(userInput, {
+          budgetTokens: 40000,
+          candidates: 8,
+          minChars: 200,
+        });
+
+        if (session.knowledge?.debugPreview) {
+          // 预览要等用户点确定；取消就什么都不做
+          const ok = await showKnowledgePreview(result);
+          if (!ok) return;
+        }
+
+        if (result.hits.length > 0) {
+          knowledge = {
+            text: result.text,
+            sections: result.hits.map((hit) => ({
+              headingPath: hit.chunk.headingPath || hit.chunk.heading,
+              docName: hit.chunk.docName,
+              chars: hit.chunk.chars,
+            })),
+            tokens: result.tokens,
+          };
+        }
+      } catch (e) {
+        console.error("[Knowledge] retrieve failed", e);
+      }
+    }
+
     setIsLoading(true);
     chatStore
-      .onUserInput(userInput, attachImages, false, attachFiles)
+      .onUserInput(userInput, attachImages, false, attachFiles, knowledge)
       .catch((error) => {
         // 正常情况下 onUserInput 内部已经吞掉了发送错误（消息先落库再发），
         // 这里只是兜底，避免出现 unhandled rejection 把页面带崩。
@@ -1956,6 +2051,7 @@ function _Chat() {
   // 单条会话上传：进行中时按钮禁用，避免连点
   const [uploadingSession, setUploadingSession] = useState(false);
   const syncStore = useSyncStore();
+  const knowledgeStore = useKnowledgeStore();
 
   const clientConfig = useMemo(() => getClientConfig(), []);
 
@@ -2779,6 +2875,21 @@ function _Chat() {
                                   : undefined
                               }
                             />
+                            {/* 知识库引用标记：点开能看到引用了哪些章节 */}
+                            {message.retrieval &&
+                              message.retrieval.sections.length > 0 && (
+                                <div
+                                  className="knowledge-badge"
+                                  title={message.retrieval.sections
+                                    .map((section) => section.headingPath)
+                                    .join("\n")}
+                                >
+                                  {Locale.Chat.Knowledge.Badge(
+                                    message.retrieval.sections.length,
+                                    message.retrieval.tokens,
+                                  )}
+                                </div>
+                              )}
                           </div>
                           {message?.audio_url && (
                             <div className={styles["chat-message-audio"]}>

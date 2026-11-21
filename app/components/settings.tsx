@@ -98,6 +98,7 @@ import { createUpstashClient, isAbortError } from "../utils/cloud/upstash";
 import { getLocalAppState, setLocalAppState } from "../utils/sync";
 import { saveBackup } from "../utils/backup";
 import { DeepseekImportSection } from "./deepseek-import";
+import { KnowledgeSettingsSection } from "./knowledge-settings";
 import { LocalBackupSection } from "./local-backup";
 import { SyncConflictModal } from "./sync-conflict";
 import {
@@ -1306,6 +1307,9 @@ function SyncItems() {
 
       {/* 从 DeepSeek 官网导出的 zip 导入会话（纯本地解析，追加不覆盖） */}
       <DeepseekImportSection />
+
+      {/* 知识库：导入 Markdown，会话里启用后按标题检索注入 */}
+      <KnowledgeSettingsSection />
 
       {showBackupModal && (
         <div className="modal-mask">

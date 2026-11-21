@@ -52,6 +52,24 @@ const en: LocaleType = {
       UploadFailed: (message: string) =>
         `Upload failed${message ? `: ${message}` : ""}`,
     },
+    Knowledge: {
+      Title: "Knowledge base",
+      Enable: "Enable knowledge base for this session",
+      EnableSubTitle:
+        "On send, retrieve sections from the local Markdown library by heading and inject only the matched sections",
+      DebugPreview: "Preview retrieved content before sending",
+      DebugPreviewSubTitle:
+        "When on, each send first shows what would be injected; the model is only called after you confirm",
+      PreviewTitle: "Knowledge to be injected",
+      PreviewHint: (sections: number, tokens: number) =>
+        `${sections} section(s), ~${tokens} tokens; cancel and nothing is sent`,
+      PreviewEmpty: "Nothing matched this time (cancel or send anyway)",
+      PreviewConfirm: "Send",
+      PreviewCancel: "Cancel",
+      Badge: (sections: number, tokens: number) =>
+        `📚 ${sections} section(s) · ${tokens} tokens`,
+      Truncated: "Section too long, truncated at a code-fence boundary",
+    },
     EditMessage: {
       Title: "Edit All Messages",
       Topic: {
@@ -307,6 +325,27 @@ const en: LocaleType = {
     AutoGenerateTitle: {
       Title: "Auto Generate Title",
       SubTitle: "Generate a suitable title based on the conversation content",
+    },
+    Knowledge: {
+      Title: "Knowledge base",
+      SubTitle:
+        "Import Markdown documents, split by heading into retrieval units; only used when enabled in a session (off by default)",
+      Import: "Import Markdown",
+      Importing: "Importing…",
+      Empty: "No documents imported yet",
+      Stats: (docs: number, sections: number, chars: number) =>
+        `${docs} document(s) · ${sections} sections · ${chars} chars`,
+      DocInfo: (sections: number, chars: number) =>
+        `${sections} sections · ${chars} chars`,
+      Remove: "Remove",
+      RemoveConfirm: (name: string) => `Remove "${name}"?`,
+      ClearAll: "Clear knowledge base",
+      ClearAllConfirm: "Clear the whole knowledge base? This cannot be undone.",
+      Imported: (docs: number, sections: number) =>
+        `Imported ${docs} document(s) (${sections} sections)`,
+      ImportFailed: (name: string, message: string) =>
+        `${name}: import failed — ${message}`,
+      LocalOnly: "The knowledge base stays on this device and is not synced",
     },
     DeepseekImport: {
       Title: "Import sessions from DeepSeek",

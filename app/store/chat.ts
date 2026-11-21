@@ -101,6 +101,14 @@ export type ChatMessage = RequestMessage & {
    * 这里额外保存文件名、大小、file_id 等信息，才能在消息里画出卡片并删除。
    */
   attachments?: ChatAttachment[];
+  /**
+   * 这条消息注入过哪些知识库章节（检索元信息）。
+   * 只用于界面展示「引用 N 节」；正文里已经包含注入内容。
+   */
+  retrieval?: {
+    sections: Array<{ headingPath: string; docName: string; chars: number }>;
+    tokens: number;
+  };
 };
 
 /** 一条消息上挂的附件（图片或文件） */
@@ -226,6 +234,14 @@ export interface ChatSession {
   clearContextIndex?: number;
 
   mask: Mask;
+  /**
+   * 会话级的知识库设置。默认关闭；`debugPreview` 打开后，
+   * 每次发送前会先展示将要注入的知识库内容，确认后才请求模型。
+   */
+  knowledge?: {
+    enabled?: boolean;
+    debugPreview?: boolean;
+  };
 }
 
 export const DEFAULT_TOPIC = Locale.Store.DefaultTopic;
@@ -566,14 +582,27 @@ export const useChatStore = createPersistStore(
         attachImages?: string[],
         isMcpResponse?: boolean,
         attachFiles?: ChatAttachment[],
+        knowledge?: {
+          text: string;
+          sections: Array<{
+            headingPath: string;
+            docName: string;
+            chars: number;
+          }>;
+          tokens: number;
+        },
       ) {
         const session = get().currentSession();
         const modelConfig = session.mask.modelConfig;
 
+        // 知识库注入：拼在用户输入前面，作为同一条消息的一部分
+        const injected = !isMcpResponse ? knowledge?.text ?? "" : "";
+        const finalContent = injected ? `${injected}${content}` : content;
+
         // MCP Response no need to fill template
         let mContent: string | MultimodalContent[] = isMcpResponse
           ? content
-          : fillTemplateWith(content, modelConfig);
+          : fillTemplateWith(finalContent, modelConfig);
 
         const files = (attachFiles ?? []).filter(
           (file) => file.kind === "file" && file.fileId,
@@ -582,7 +611,9 @@ export const useChatStore = createPersistStore(
 
         if (!isMcpResponse && (hasImages || files.length > 0)) {
           mContent = [
-            ...(content ? [{ type: "text" as const, text: content }] : []),
+            ...(finalContent
+              ? [{ type: "text" as const, text: finalContent }]
+              : []),
             ...(attachImages ?? []).map((url) => ({
               type: "image_url" as const,
               image_url: { url },
@@ -616,6 +647,9 @@ export const useChatStore = createPersistStore(
           content: mContent,
           isMcpResponse,
           attachments,
+          retrieval: knowledge
+            ? { sections: knowledge.sections, tokens: knowledge.tokens }
+            : undefined,
         });
 
         // 1. 先把 user 消息写进会话，再做任何可能失败的异步操作。

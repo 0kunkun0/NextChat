@@ -625,3 +625,70 @@ pre {
   opacity: 0.6;
   font-size: 11px;
 }
+/* ------------------------- 知识库 ------------------------- */
+.knowledge-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: var(--border-in-light);
+  font-size: 11px;
+  opacity: 0.8;
+  background-color: var(--white);
+}
+
+.knowledge-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.knowledge-preview-hint {
+  font-size: 12px;
+  opacity: 0.75;
+  padding: 4px 0 8px;
+}
+
+.knowledge-preview-chars {
+  opacity: 0.8;
+}
+
+.knowledge-preview-item {
+  border: var(--border-in-light);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background-color: var(--white);
+
+  summary {
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+}
+
+.knowledge-preview-path {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.knowledge-preview-meta {
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+.knowledge-preview-text {
+  margin: 8px 0 0;
+  padding: 8px;
+  max-height: 320px;
+  overflow: auto;
+  border-radius: 6px;
+  background-color: var(--gray);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

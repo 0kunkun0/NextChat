@@ -49,6 +49,24 @@ const cn = {
       UploadFailed: (message: string) =>
         `上传失败${message ? `：${message}` : ""}`,
     },
+    Knowledge: {
+      Title: "知识库检索",
+      Enable: "为这个会话启用知识库",
+      EnableSubTitle:
+        "发送消息时按 Markdown 标题检索本地知识库，只把命中的章节注入上下文",
+      DebugPreview: "发送前预览引用内容",
+      DebugPreviewSubTitle:
+        "开启后，每次发送会先弹出将注入的知识库内容，确认后才请求模型",
+      PreviewTitle: "本次将引用的知识库内容",
+      PreviewHint: (sections: number, tokens: number) =>
+        `共 ${sections} 节，约 ${tokens} token；取消则不会发送消息`,
+      PreviewEmpty: "这次没有检索到相关知识库内容（取消或继续发送均可）",
+      PreviewConfirm: "确认发送",
+      PreviewCancel: "取消",
+      Badge: (sections: number, tokens: number) =>
+        `📚 知识库 ${sections} 节 · ${tokens} token`,
+      Truncated: "本节过长，已按代码块边界截断",
+    },
     EditMessage: {
       Title: "编辑消息记录",
       Topic: {
@@ -302,6 +320,27 @@ const cn = {
     AutoGenerateTitle: {
       Title: "自动生成标题",
       SubTitle: "根据对话内容生成合适的标题",
+    },
+    Knowledge: {
+      Title: "知识库",
+      SubTitle:
+        "导入 Markdown 文档，按标题切分成检索单元；只在会话里启用后才会参与检索（默认关闭）",
+      Import: "导入 Markdown",
+      Importing: "导入中…",
+      Empty: "还没有导入任何文档",
+      Stats: (docs: number, sections: number, chars: number) =>
+        `${docs} 个文档 · ${sections} 节 · ${chars} 字`,
+      DocInfo: (sections: number, chars: number) =>
+        `${sections} 节 · ${chars} 字`,
+      Remove: "删除",
+      RemoveConfirm: (name: string) => `删除「${name}」？`,
+      ClearAll: "清空知识库",
+      ClearAllConfirm: "清空整个知识库？此操作不可撤销。",
+      Imported: (docs: number, sections: number) =>
+        `已导入 ${docs} 个文档（${sections} 节）`,
+      ImportFailed: (name: string, message: string) =>
+        `${name} 导入失败：${message}`,
+      LocalOnly: "知识库只存在本机，不参与云同步",
     },
     DeepseekImport: {
       Title: "从 DeepSeek 导入会话",
