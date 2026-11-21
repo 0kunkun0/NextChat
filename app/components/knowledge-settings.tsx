@@ -2,6 +2,12 @@ import React, { useEffect, useRef } from "react";
 
 import Locale from "../locales";
 import { useKnowledgeStore } from "../store/knowledge";
+import { useChatStore } from "../store/chat";
+import {
+  findAffectedSessions,
+  formatAffectedTopics,
+  stripDocReferences,
+} from "../utils/knowledge/affected";
 import { IconButton } from "./button";
 import { List, ListItem, showConfirm, showToast } from "./ui-lib";
 import AddIcon from "../icons/add.svg";
@@ -16,6 +22,7 @@ import UploadIcon from "../icons/upload.svg";
  */
 export function KnowledgeSettingsSection() {
   const store = useKnowledgeStore();
+  const chatStore = useChatStore();
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -32,6 +39,65 @@ export function KnowledgeSettingsSection() {
     if (imported > 0) {
       showToast(Locale.Settings.Knowledge.Imported(imported, chunks));
     }
+  };
+
+  /**
+   * 删除前先查「哪些对话引用过这份文档」，提示之后再删。
+   *
+   * 删完还要把那些对话里失效的引用清掉：否则消息上会留下指向不存在片段的
+   * 标记，发送时也会白跑一次检索。
+   */
+  const handleRemoveDoc = async (docId: string, docName: string) => {
+    const affected = findAffectedSessions(chatStore.sessions, [docId]);
+    const confirmed = await showConfirm(
+      affected.length > 0
+        ? Locale.Settings.Knowledge.RemoveAffected(
+            docName,
+            affected.length,
+            formatAffectedTopics(affected),
+          )
+        : Locale.Settings.Knowledge.RemoveConfirm(docName),
+    );
+    if (!confirmed) return;
+
+    await store.remove(docId);
+    if (affected.length > 0) {
+      cleanReferences([docId]);
+      showToast(Locale.Settings.Knowledge.CleanedReferences(affected.length));
+    }
+  };
+
+  /** 清空知识库：同样先提示影响的对话，再删引用 */
+  const handleClearAll = async () => {
+    const docIds = store.docs.map((doc) => doc.id);
+    const affected = findAffectedSessions(chatStore.sessions, docIds);
+    const confirmed = await showConfirm(
+      affected.length > 0
+        ? Locale.Settings.Knowledge.ClearAllAffected(
+            affected.length,
+            formatAffectedTopics(affected),
+          )
+        : Locale.Settings.Knowledge.ClearAllConfirm,
+    );
+    if (!confirmed) return;
+
+    await store.clear();
+    if (affected.length > 0) {
+      cleanReferences(docIds);
+    }
+  };
+
+  /** 把会话里属于这些文档的引用 / 勾选片段清掉 */
+  const cleanReferences = (docIds: string[]) => {
+    chatStore.update((state) => {
+      for (const session of state.sessions) {
+        const result = stripDocReferences(session, docIds);
+        if (result.removedSections > 0 || result.removedPinned > 0) {
+          // 替换数组引用，让消息列表和标记重新渲染
+          session.messages = session.messages.concat();
+        }
+      }
+    });
   };
 
   return (
@@ -63,13 +129,7 @@ export function KnowledgeSettingsSection() {
             <IconButton
               icon={<DeleteIcon />}
               text={Locale.Settings.Knowledge.ClearAll}
-              onClick={async () => {
-                if (
-                  await showConfirm(Locale.Settings.Knowledge.ClearAllConfirm)
-                ) {
-                  await store.clear();
-                }
-              }}
+              onClick={() => void handleClearAll()}
             />
           )}
         </div>
@@ -96,15 +156,7 @@ export function KnowledgeSettingsSection() {
           <IconButton
             icon={<DeleteIcon />}
             text={Locale.Settings.Knowledge.Remove}
-            onClick={async () => {
-              if (
-                await showConfirm(
-                  Locale.Settings.Knowledge.RemoveConfirm(doc.name),
-                )
-              ) {
-                await store.remove(doc.id);
-              }
-            }}
+            onClick={() => void handleRemoveDoc(doc.id, doc.name)}
           />
         </ListItem>
       ))}

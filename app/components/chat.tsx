@@ -70,6 +70,7 @@ import { useSyncStore } from "../store/sync";
 import { useKnowledgeStore } from "../store/knowledge";
 import { showKnowledgePreview } from "./knowledge-preview";
 import { showKnowledgeSectionPicker } from "./knowledge-picker";
+import { KnowledgeBadge } from "./knowledge-badge";
 import { uploadSessionNow } from "../utils/upload-one";
 import { attachInputDiagnostics } from "../utils/input-diag";
 import { getPortalHost } from "../utils/portal";
@@ -1885,6 +1886,22 @@ function _Chat() {
   }
 
   // preview messages
+  /**
+   * 只有「最近一条引用了知识库的用户消息」显示引用标记。
+   *
+   * 历史里每条都挂一个会让列表很吵，而且旧消息上的数字也可能早就过期；
+   * 只需要看到本轮到底注入了什么。
+   */
+  const lastKnowledgeMessageId = useMemo(() => {
+    for (let i = session.messages.length - 1; i >= 0; i -= 1) {
+      const message = session.messages[i];
+      if (message.role === "user" && message.retrieval?.sections?.length) {
+        return message.id;
+      }
+    }
+    return "";
+  }, [session.messages]);
+
   const renderMessages = useMemo(() => {
     // 已经有真正的“生成中”消息时，不要再补一个 "……" 的占位气泡，
     // 否则重新生成的瞬间会同时出现两条 assistant 占位
@@ -2924,20 +2941,14 @@ function _Chat() {
                                   : undefined
                               }
                             />
-                            {/* 知识库引用标记：点开能看到引用了哪些章节 */}
-                            {message.retrieval &&
+                            {/* 知识库引用标记：只在最新一条引用过知识库的消息上显示 */}
+                            {message.id === lastKnowledgeMessageId &&
+                              message.retrieval &&
                               message.retrieval.sections.length > 0 && (
-                                <div
-                                  className="knowledge-badge"
-                                  title={message.retrieval.sections
-                                    .map((section) => section.headingPath)
-                                    .join("\n")}
-                                >
-                                  {Locale.Chat.Knowledge.Badge(
-                                    message.retrieval.sections.length,
-                                    message.retrieval.tokens,
-                                  )}
-                                </div>
+                                <KnowledgeBadge
+                                  sections={message.retrieval.sections}
+                                  tokens={message.retrieval.tokens}
+                                />
                               )}
                           </div>
                           {message?.audio_url && (

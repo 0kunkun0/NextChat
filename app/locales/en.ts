@@ -400,6 +400,12 @@ const en: LocaleType = {
         `Imported ${docs} document(s) (${sections} sections)`,
       ImportFailed: (name: string, message: string) =>
         `${name}: import failed — ${message}`,
+      RemoveAffected: (name: string, count: number, topics: string) =>
+        `Removing "${name}" affects ${count} conversation(s) (${topics}); their references will be cleared too. Continue?`,
+      ClearAllAffected: (count: number, topics: string) =>
+        `Clearing the knowledge base affects ${count} conversation(s) (${topics}); their references will be cleared too. Continue?`,
+      CleanedReferences: (count: number) =>
+        `Cleared stale knowledge references in ${count} conversation(s)`,
       LocalOnly: "The knowledge base stays on this device and is not synced",
     },
     DeepseekImport: {

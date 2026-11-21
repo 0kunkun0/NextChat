@@ -393,6 +393,12 @@ const cn = {
         `已导入 ${docs} 个文档（${sections} 节）`,
       ImportFailed: (name: string, message: string) =>
         `${name} 导入失败：${message}`,
+      RemoveAffected: (name: string, count: number, topics: string) =>
+        `删除「${name}」会影响 ${count} 个对话（${topics}）的引用，删除后会一并清掉这些引用。继续？`,
+      ClearAllAffected: (count: number, topics: string) =>
+        `清空知识库会影响 ${count} 个对话（${topics}）的引用，清空后会一并清掉这些引用。继续？`,
+      CleanedReferences: (count: number) =>
+        `已清掉 ${count} 个对话里失效的知识库引用`,
       LocalOnly: "知识库只存在本机，不参与云同步",
     },
     DeepseekImport: {
