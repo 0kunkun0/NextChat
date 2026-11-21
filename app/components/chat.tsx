@@ -1460,6 +1460,11 @@ function _Chat() {
           // 预览要等用户点确定；取消就什么都不做
           const ok = await showKnowledgePreview(result);
           if (!ok) return;
+        } else if (result.debug?.reason === "no-docs") {
+          // 没开调试预览时，至少提示“库里还没东西”，否则用户只会觉得检索坏了
+          showToast(Locale.Chat.Knowledge.EmptyNoDocs);
+        } else if (result.debug?.reason === "no-match") {
+          console.info("[Knowledge] no match", result.debug);
         }
 
         if (result.hits.length > 0) {

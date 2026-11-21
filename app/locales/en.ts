@@ -64,6 +64,13 @@ const en: LocaleType = {
       PreviewHint: (sections: number, tokens: number) =>
         `${sections} section(s), ~${tokens} tokens; cancel and nothing is sent`,
       PreviewEmpty: "Nothing matched this time (cancel or send anyway)",
+      PreviewStats: (docs: number, sections: number) =>
+        `Knowledge base: ${docs} document(s) / ${sections} section(s)`,
+      EmptyNoDocs:
+        "The knowledge base is empty — import Markdown in Settings → Knowledge base first",
+      EmptyNoMatch: (docs: number, sections: number, tokens: string) =>
+        `The knowledge base has ${docs} document(s) / ${sections} section(s), but nothing matched (query tokens: ${tokens})`,
+      EmptyQuery: "The input is empty, nothing to retrieve",
       PreviewConfirm: "Send",
       PreviewCancel: "Cancel",
       Badge: (sections: number, tokens: number) =>

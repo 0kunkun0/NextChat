@@ -61,6 +61,12 @@ const cn = {
       PreviewHint: (sections: number, tokens: number) =>
         `共 ${sections} 节，约 ${tokens} token；取消则不会发送消息`,
       PreviewEmpty: "这次没有检索到相关知识库内容（取消或继续发送均可）",
+      PreviewStats: (docs: number, sections: number) =>
+        `知识库：${docs} 个文档 / ${sections} 节`,
+      EmptyNoDocs: "知识库还是空的：请先到「设置 → 知识库」导入 Markdown 文档",
+      EmptyNoMatch: (docs: number, sections: number, tokens: string) =>
+        `知识库有 ${docs} 个文档 / ${sections} 节，但这次没有匹配到（检索词：${tokens}）`,
+      EmptyQuery: "输入框是空的，没有可检索的内容",
       PreviewConfirm: "确认发送",
       PreviewCancel: "取消",
       Badge: (sections: number, tokens: number) =>

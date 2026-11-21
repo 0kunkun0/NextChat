@@ -16,6 +16,7 @@ import {
   type KnowledgeIndex,
   type SearchHit,
 } from "../utils/knowledge/retrieval";
+import { tokenizeQuery } from "../utils/knowledge/tokenize";
 import { showToast } from "../components/ui-lib";
 import Locale from "../locales";
 
@@ -51,11 +52,24 @@ export type SearchOptions = {
   minChars?: number;
 };
 
+export type KnowledgeDebug = {
+  /** 知识库里有多少文档 / 多少节 */
+  docs: number;
+  chunks: number;
+  /** 查询被切成了哪些 token（排查“为什么没命中”） */
+  queryTokens: string[];
+  /** 为空的原因 */
+  reason?: "empty-query" | "no-docs" | "no-match";
+  /** 是否靠“去掉最小字数限制”的兜底才命中 */
+  usedFallback?: boolean;
+};
+
 export type KnowledgeResult = {
   hits: SearchHit[];
   text: string;
   tokens: number;
   empty: boolean;
+  debug: KnowledgeDebug;
 };
 
 const signatureOf = (docs: DocMeta[]) =>
@@ -134,24 +148,75 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
   },
 
   async retrieve(query, options = {}) {
-    if (!query.trim()) {
-      return { hits: [], text: "", tokens: 0, empty: true };
-    }
+    const tokens = tokenizeQuery(query);
+    const emptyResult = (
+      reason: KnowledgeDebug["reason"],
+    ): KnowledgeResult => ({
+      hits: [],
+      text: "",
+      tokens: 0,
+      empty: true,
+      debug: {
+        docs: get().docs.length,
+        chunks: get().index?.chunks.length ?? 0,
+        queryTokens: tokens,
+        reason,
+      },
+    });
+
+    if (!query.trim()) return emptyResult("empty-query");
+
     if (get().indexSignature === "" || get().index === null) {
       await get().refresh();
     }
     const index = get().index;
-    if (!index || index.chunks.length === 0) {
-      return { hits: [], text: "", tokens: 0, empty: true };
+    if (!index || index.chunks.length === 0) return emptyResult("no-docs");
+
+    // 严格检索：丢弃小于 minChars 的节（只有标题没有正文的碎片）
+    const strict = search(index, query, options);
+
+    /**
+     * 兜底：严格检索为空时，去掉 minChars 再来一次。
+     *
+     * 很多问答型文档的答案是几十个字的短节（比如 FAQ 的一问一答），
+     * 按 200 字门槛会被直接过滤掉——用户看到的就是“没有检索到”。
+     * 有内容就先用上，别让门槛把结果吞了。
+     */
+    const loose =
+      strict.length === 0
+        ? search(index, query, { ...options, minChars: 0, candidates: 8 })
+        : [];
+
+    const injected = strict.length > 0 ? strict : loose;
+    const result: KnowledgeResult = {
+      hits: injected,
+      text: formatInjection(injected),
+      tokens: injected.reduce((sum, hit) => sum + hit.estTokens, 0),
+      empty: injected.length === 0,
+      debug: {
+        docs: get().docs.length,
+        chunks: index.chunks.length,
+        queryTokens: tokens,
+        reason: injected.length > 0 ? undefined : "no-match",
+        usedFallback: strict.length === 0 && loose.length > 0,
+      },
+    };
+
+    if (result.empty) {
+      console.warn("[Knowledge] no hit", {
+        query,
+        tokens: tokens.slice(0, 20),
+        docs: result.debug.docs,
+        chunks: result.debug.chunks,
+      });
+    } else if (result.debug.usedFallback) {
+      console.info("[Knowledge] matched only after dropping minChars", {
+        query,
+        hits: injected.length,
+      });
     }
 
-    const hits = search(index, query, options);
-    return {
-      hits,
-      text: formatInjection(hits),
-      tokens: hits.reduce((sum, hit) => sum + hit.estTokens, 0),
-      empty: hits.length === 0,
-    };
+    return result;
   },
 }));
 

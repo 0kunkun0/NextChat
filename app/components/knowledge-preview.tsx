@@ -24,6 +24,24 @@ export function KnowledgePreviewDialog(props: {
     () => result.hits.reduce((sum, hit) => sum + hit.text.length, 0),
     [result],
   );
+  const debug = result.debug;
+
+  /** 空结果时给出具体原因：库是空的？还是这次没匹配到？ */
+  const emptyReason = useMemo(() => {
+    if (result.hits.length > 0) return "";
+    if (debug?.reason === "no-docs") return Locale.Chat.Knowledge.EmptyNoDocs;
+    if (debug?.reason === "empty-query")
+      return Locale.Chat.Knowledge.EmptyQuery;
+    if (debug?.reason === "no-match") {
+      const tokens = (debug.queryTokens ?? []).slice(0, 12).join(" / ");
+      return Locale.Chat.Knowledge.EmptyNoMatch(
+        debug.docs,
+        debug.chunks,
+        tokens || "(无)",
+      );
+    }
+    return Locale.Chat.Knowledge.PreviewEmpty;
+  }, [result, debug]);
 
   return (
     <div className="modal-mask">
@@ -49,17 +67,25 @@ export function KnowledgePreviewDialog(props: {
       >
         <div className="knowledge-preview">
           <div className="knowledge-preview-hint">
-            {result.hits.length === 0
-              ? Locale.Chat.Knowledge.PreviewEmpty
-              : Locale.Chat.Knowledge.PreviewHint(
+            {/* 库的规模一直显示：一眼就能看出“是不是根本没导入” */}
+            <div className="knowledge-preview-stats">
+              {debug
+                ? Locale.Chat.Knowledge.PreviewStats(debug.docs, debug.chunks)
+                : null}
+            </div>
+            {result.hits.length === 0 ? (
+              <div className="knowledge-preview-empty">{emptyReason}</div>
+            ) : (
+              <div>
+                {Locale.Chat.Knowledge.PreviewHint(
                   result.hits.length,
                   result.tokens,
                 )}
-            {result.hits.length > 0 && (
-              <span className="knowledge-preview-chars">
-                {" "}
-                · {totalChars} 字符
-              </span>
+                <span className="knowledge-preview-chars">
+                  {" "}
+                  · {totalChars} 字符
+                </span>
+              </div>
             )}
           </div>
 
