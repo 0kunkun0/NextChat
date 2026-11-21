@@ -359,7 +359,7 @@ const en: LocaleType = {
         "If the same Upstash database holds several backups (renamed index, shared deployments), read one by name and pull selected conversations back",
       List: "List backups",
       NameTitle: "Backup name",
-      NamePlaceholder: "e.g. nextchat / ikun-backup",
+      NamePlaceholder: "e.g. nextchat",
       NameSubTitle: (count: number) =>
         `${count} backup(s) found — pick one or type a name`,
       NameSubTitleHint: 'Click "List backups" first, or type the index name',

@@ -353,7 +353,7 @@ const cn = {
         "同一个 Upstash 库里如果有多份备份（换过索引名、多个部署共用一个库），可以按备份名读取并挑几条对话导回来",
       List: "列出可用备份",
       NameTitle: "备份名",
-      NamePlaceholder: "例如 nextchat / ikun-backup",
+      NamePlaceholder: "例如 nextchat",
       NameSubTitle: (count: number) =>
         `数据库里发现 ${count} 份备份，可点选或直接输入`,
       NameSubTitleHint: "先点「列出可用备份」，或直接输入索引名",
@@ -530,23 +530,23 @@ const cn = {
 
       Encryption: {
         Title: "云端内容加密",
-        StatusOff: "未开启：对话内容和标题在云端是明文",
-        StatusOn: "已开启：消息内容与标题已加密，本设备已解锁",
-        StatusLocked: "已开启：本设备已锁定，同步时需要输入密码",
+        StatusOff: "未开启",
+        StatusOn: "已开启，本设备已解锁",
+        StatusLocked: "已开启，但本设备已锁定，同步时需要输入密码",
         Enable: "开启加密",
         Disable: "关闭加密",
         Lock: "立即锁定",
-        LockedToast: "已锁定：内存中的密钥已丢弃",
+        LockedToast: "已锁定",
         SetTitle: "设置加密密码",
         UnlockTitle: "输入加密密码",
         UnlockTip: "云端数据是加密的，需要输入密码才能解密。",
         UnlockTipMismatch:
           "云端数据用的是另一个加密参数（通常是在别的设备上启用的加密）。请用那份备份的密码解锁，本机当前记住的密钥不适用于它。",
         SetTip:
-          "密码只在本机用于派生密钥，不会上传。忘记密码将无法恢复云端数据。",
+          "密码只在本机用于派生密钥，不会上传，忘记密码将无法恢复云端数据。",
         Password: "加密密码",
         PasswordConfirm: "再输入一次",
-        Remember: "在此设备记住（不用每次输入，但本机被拿到就等于明文）",
+        Remember: "在此设备记住",
         EmptyPassword: "密码不能为空",
         PasswordMismatch: "两次输入的密码不一致",
         WrongPassword: "密码不正确，无法解密云端的备份",

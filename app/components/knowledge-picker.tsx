@@ -7,7 +7,7 @@ import ConfirmIcon from "../icons/confirm.svg";
 import CancelIcon from "../icons/cancel.svg";
 import { createPortalLayer } from "../utils/portal";
 import type { KnowledgeChunk } from "../utils/knowledge/retrieval";
-import { previewOf } from "../utils/knowledge/preview";
+import { highlightParts, previewOf } from "../utils/knowledge/preview";
 
 /**
  * 「选择本次使用的知识库片段」弹窗。
@@ -166,7 +166,10 @@ export function KnowledgeSectionPicker(props: PickerProps) {
                   />
                   <span className="knowledge-picker-body">
                     <span className="knowledge-picker-title">
-                      {section.headingPath || section.heading}
+                      <Highlight
+                        text={section.headingPath || section.heading}
+                        keyword={keyword}
+                      />
                     </span>
                     <span className="knowledge-picker-meta">
                       {section.docName} · {section.chars} 字
@@ -175,7 +178,11 @@ export function KnowledgeSectionPicker(props: PickerProps) {
                         : ""}
                     </span>
                     <span className="knowledge-picker-preview">
-                      {previewOf(section)}
+                      {/* 预览从命中处截取，并把关键字标出来 */}
+                      <Highlight
+                        text={previewOf(section, keyword)}
+                        keyword={keyword}
+                      />
                     </span>
                   </span>
                 </label>
@@ -204,6 +211,23 @@ export function KnowledgeSectionPicker(props: PickerProps) {
   );
 }
 
+/** 把关键字命中处渲染成 <mark> */
+function Highlight(props: { text: string; keyword: string }) {
+  const parts = highlightParts(props.text, props.keyword);
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.hit ? (
+          <mark key={index} className="knowledge-picker-hit">
+            {part.text}
+          </mark>
+        ) : (
+          <span key={index}>{part.text}</span>
+        ),
+      )}
+    </>
+  );
+}
 /** 命令式调用：返回选中的片段 id（取消返回 null） */
 export function showKnowledgeSectionPicker(options: {
   sections: KnowledgeChunk[];

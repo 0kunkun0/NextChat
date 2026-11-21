@@ -836,3 +836,10 @@ pre {
   color: var(--black);
   font-size: 13px;
 }
+/* 搜索关键字高亮 */
+.knowledge-picker-hit {
+  background-color: rgba(255, 196, 0, 0.35);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}

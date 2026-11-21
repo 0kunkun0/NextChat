@@ -659,8 +659,6 @@ function SyncItems() {
   const refreshBackups = () => setBackupRefreshKey((n) => n + 1);
   /** 本地备份改成弹窗显示 */
   const [showBackupModal, setShowBackupModal] = useState(false);
-  /** 知识库改成弹窗入口（和本地备份一致，不再把文档列表挂满设置页） */
-  const [showKnowledgeModal, setShowKnowledgeModal] = useState(false);
   /**
    * 「删除云端已不存在的会话」：默认关闭，勾选后只对**下一次**上传生效，
    * 上传完自动取消勾选，避免误删。
@@ -1355,19 +1353,6 @@ function SyncItems() {
       {/* 从同一个 Upstash 库里的其它备份导入会话（加密备份会验证密码） */}
       <RemoteBackupImportSection />
 
-      {/* 知识库：入口做成弹窗，内容在里面管理（导入 / 删除 / 统计） */}
-      <List>
-        <ListItem
-          title={Locale.Settings.Knowledge.Title}
-          subTitle={Locale.Settings.Knowledge.SubTitle}
-        >
-          <IconButton
-            text={Locale.Settings.Knowledge.Open}
-            onClick={() => setShowKnowledgeModal(true)}
-          />
-        </ListItem>
-      </List>
-
       {showBackupModal && (
         <div className="modal-mask">
           <Modal
@@ -1382,24 +1367,6 @@ function SyncItems() {
             ]}
           >
             <LocalBackupSection refreshKey={backupRefreshKey} />
-          </Modal>
-        </div>
-      )}
-
-      {showKnowledgeModal && (
-        <div className="modal-mask">
-          <Modal
-            title={Locale.Settings.Knowledge.ModalTitle}
-            onClose={() => setShowKnowledgeModal(false)}
-            actions={[
-              <IconButton
-                key="close"
-                text={Locale.UI.Close}
-                onClick={() => setShowKnowledgeModal(false)}
-              />,
-            ]}
-          >
-            <KnowledgeSettingsSection />
           </Modal>
         </div>
       )}
@@ -1422,6 +1389,8 @@ function SyncItems() {
 export function Settings() {
   const navigate = useNavigate();
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  /** 知识库入口在最顶上，弹窗状态放在页面级 */
+  const [showKnowledgeModal, setShowKnowledgeModal] = useState(false);
   const config = useAppConfig();
   const updateConfig = config.update;
   const lowMemoryEnabled = useLowMemoryStore((state) => state.enabled);
@@ -2399,6 +2368,19 @@ export function Settings() {
         </div>
       </div>
       <div className={styles["settings"]}>
+        {/* 知识库：放在最顶上，导入 / 维护 / 查看统计一眼就能点到 */}
+        <List>
+          <ListItem
+            title={Locale.Settings.Knowledge.Title}
+            subTitle={Locale.Settings.Knowledge.SubTitle}
+          >
+            <IconButton
+              text={Locale.Settings.Knowledge.Open}
+              onClick={() => setShowKnowledgeModal(true)}
+            />
+          </ListItem>
+        </List>
+
         <List>
           <ListItem title={Locale.Settings.Avatar}>
             <Popover
@@ -2925,6 +2907,24 @@ export function Settings() {
         </List>
 
         <DangerItems />
+
+        {showKnowledgeModal && (
+          <div className="modal-mask">
+            <Modal
+              title={Locale.Settings.Knowledge.ModalTitle}
+              onClose={() => setShowKnowledgeModal(false)}
+              actions={[
+                <IconButton
+                  key="close"
+                  text={Locale.UI.Close}
+                  onClick={() => setShowKnowledgeModal(false)}
+                />,
+              ]}
+            >
+              <KnowledgeSettingsSection />
+            </Modal>
+          </div>
+        )}
       </div>
     </ErrorBoundary>
   );
