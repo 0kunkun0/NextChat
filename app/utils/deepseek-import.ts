@@ -64,6 +64,12 @@ export interface ImportedConversation {
   exportId: string;
   title: string;
   session: ChatSession;
+  /** 导出索引里是否置顶 */
+  pinned: boolean;
+  /** 导出索引里的更新时间（毫秒），用来排序 */
+  updatedAt: number;
+  /** 消息条数，选会话时给用户看的参考 */
+  messageCount: number;
 }
 
 export interface DeepseekImportResult {
@@ -152,10 +158,15 @@ export function parseDeepseekExport(
 
     try {
       const title = normalizeTitle(file.title) ?? "未命名会话";
+      const session = toChatSession(file, title, options);
       imported.push({
         exportId: id,
         title,
-        session: toChatSession(file, title, options),
+        session,
+        pinned: row?.pinned === true,
+        // 索引里的 updated_at 是 RFC3339；解析失败就退回会话自身的更新时间
+        updatedAt: parseTimeOr(row?.updated_at, session.lastUpdate),
+        messageCount: session.messages.length,
       });
     } catch (e: any) {
       skipped.push({
@@ -166,7 +177,19 @@ export function parseDeepseekExport(
     }
   }
 
+  // 置顶的排最前面，其余按更新时间倒序：导入弹窗里就是这个顺序
+  imported.sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    return b.updatedAt - a.updatedAt;
+  });
+
   return { imported, skipped };
+}
+
+/** 解析时间串；失败时返回兜底值 */
+function parseTimeOr(value: unknown, fallback: number): number {
+  const time = typeof value === "string" ? Date.parse(value) : NaN;
+  return Number.isFinite(time) ? time : fallback;
 }
 
 /** 把一条导出的会话转成 NextChat 的 ChatSession */

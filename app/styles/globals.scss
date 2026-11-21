@@ -451,3 +451,175 @@ pre {
 .copyable {
   user-select: text;
 }
+/* ------------------------- 附件（文件 / 图片） ------------------------- */
+/* ------------------------- 附件（文件 / 图片） ------------------------- */
+.attachment-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px 0;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 6px 4px 8px;
+  border-radius: 8px;
+  border: var(--border-in-light);
+  background-color: var(--white);
+  font-size: 12px;
+  color: var(--black);
+
+  &.is-pending {
+    opacity: 0.65;
+  }
+
+  .attachment-chip-thumb {
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    object-fit: cover;
+  }
+
+  .attachment-chip-ext {
+    font-weight: 700;
+    font-size: 10px;
+    color: var(--primary);
+  }
+
+  .attachment-chip-name {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .attachment-chip-size {
+    opacity: 0.6;
+  }
+
+  .attachment-chip-remove {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+    opacity: 0.6;
+
+    &:hover {
+      opacity: 1;
+    }
+  }
+}
+
+.message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.message-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: var(--border-in-light);
+  background-color: var(--white);
+  font-size: 12px;
+
+  .message-attachment-thumb {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    object-fit: cover;
+  }
+
+  .message-attachment-ext {
+    font-weight: 700;
+    font-size: 11px;
+    color: var(--primary);
+    min-width: 34px;
+    text-align: center;
+  }
+
+  .message-attachment-info {
+    display: flex;
+    flex-direction: column;
+    max-width: 220px;
+  }
+
+  .message-attachment-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .message-attachment-meta {
+    opacity: 0.6;
+    font-size: 11px;
+  }
+
+  .message-attachment-remove {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    opacity: 0.6;
+
+    &:hover {
+      opacity: 1;
+    }
+  }
+}
+/* ------------------------- DeepSeek 导入：选择会话 ------------------------- */
+.deepseek-import-list {
+  max-height: 50vh;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+.deepseek-import-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-bottom: var(--border-in-light);
+  cursor: pointer;
+  font-size: 13px;
+
+  input {
+    flex: none;
+  }
+}
+
+.deepseek-import-all {
+  font-weight: 600;
+  border-bottom: 0;
+  margin-top: 8px;
+}
+
+.deepseek-import-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deepseek-import-pin {
+  margin-right: 4px;
+}
+
+.deepseek-import-meta {
+  flex: none;
+  opacity: 0.6;
+  font-size: 11px;
+}

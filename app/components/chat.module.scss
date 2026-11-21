@@ -1048,3 +1048,12 @@
     }
   }
 }
+
+/* 编辑消息时的附件行 */
+.context-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 8px;
+}

@@ -65,9 +65,20 @@ async function request(req: NextRequest) {
   );
 
   const fetchUrl = `${baseUrl}${path}`;
+  /**
+   * 转发请求时要保留原始的 Content-Type。
+   *
+   * 以前固定写 "application/json"：普通对话没问题，但 Files API 的上传是
+   * multipart/form-data（带 boundary），写死 JSON 会让上游直接拒绝。
+   */
+  const contentType =
+    req.headers.get("content-type") ??
+    (req.method === "GET" ? undefined : "application/json");
+  const isJson = !!contentType && contentType.includes("application/json");
+
   const fetchOptions: RequestInit = {
     headers: {
-      "Content-Type": "application/json",
+      ...(contentType ? { "Content-Type": contentType } : {}),
       Authorization: req.headers.get("Authorization") ?? "",
     },
     method: req.method,
@@ -79,7 +90,8 @@ async function request(req: NextRequest) {
   };
 
   // #1815 try to refuse some request to some models
-  if (serverConfig.customModels && req.body) {
+  // 只有 JSON 请求才做模型白名单检查（multipart 上传要原样转发，不能读 body）
+  if (serverConfig.customModels && req.body && isJson) {
     try {
       const clonedBody = await req.text();
       fetchOptions.body = clonedBody;

@@ -31,6 +31,7 @@ import {
   Popover,
   Select,
   showConfirm,
+  showToast,
 } from "./ui-lib";
 import { Avatar, AvatarPicker } from "./emoji";
 import Locale, { AllLangs, ALL_LANG_OPTIONS, Lang } from "../locales";
@@ -44,6 +45,19 @@ import {
   getMessageImages,
   readFromFile,
 } from "../utils";
+import { AttachmentChips, rebuildContent } from "./attachments";
+import type { ChatAttachment } from "../store/chat";
+import {
+  ACCEPT_FILE,
+  MAX_ATTACHMENTS,
+  deleteFile,
+  getMaxSizeMB,
+  getUploadPurpose,
+  isImageFile,
+  readAsDataURL,
+  toChatAttachment,
+  uploadFile,
+} from "../utils/attachments";
 import { CONTEXT_PAGE_SIZE, getContextWindow } from "../utils/context-prompt";
 import { Updater } from "../typing";
 import { ModelConfigList } from "./model-config";
@@ -258,6 +272,116 @@ export function MaskConfig(props: {
   );
 }
 
+/**
+ * 编辑消息时的附件编辑器。
+ *
+ * 图片走 data URL 直接塞进消息；文档 / 文本等上传到 DeepSeek Files API，
+ * 只保存 file_id 与元信息。删除时会同时尽力删掉云端文件。
+ */
+function PromptAttachmentEditor(props: {
+  prompt: ChatMessage;
+  onChange: (attachments: ChatAttachment[]) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const attachments = props.prompt.attachments ?? [];
+
+  const append = (items: ChatAttachment[]) =>
+    props.onChange([...attachments, ...items]);
+
+  const handleFiles = async (files: File[]) => {
+    if (files.length === 0) return;
+    const room = Math.max(0, MAX_ATTACHMENTS - attachments.length);
+    if (room === 0) {
+      showToast(Locale.Chat.Attachments.TooMany(MAX_ATTACHMENTS));
+      return;
+    }
+
+    setBusy(true);
+    try {
+      for (const file of files.slice(0, room)) {
+        const isImage = isImageFile(file);
+        if (!getUploadPurpose(file.name, isImage)) {
+          showToast(Locale.Chat.Attachments.Unsupported(file.name));
+          continue;
+        }
+        if (file.size > getMaxSizeMB(file.name, isImage) * 1024 * 1024) {
+          showToast(
+            Locale.Chat.Attachments.TooLarge(
+              file.name,
+              getMaxSizeMB(file.name, isImage),
+            ),
+          );
+          continue;
+        }
+
+        if (isImage) {
+          const url = await readAsDataURL(file);
+          append([
+            {
+              id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              kind: "image",
+              name: file.name,
+              bytes: file.size,
+              mime: file.type || "image/*",
+              url,
+            },
+          ]);
+          continue;
+        }
+
+        try {
+          const object = await uploadFile(file);
+          append([toChatAttachment(file, object)]);
+        } catch (e: any) {
+          showToast(Locale.Chat.Attachments.UploadFailed(e?.message ?? ""));
+        }
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className={chatStyle["context-attachments"]}>
+      <AttachmentChips
+        items={attachments}
+        onRemove={(id) => {
+          const target = attachments.find((item) => item.id === id);
+          props.onChange(attachments.filter((item) => item.id !== id));
+          if (target?.fileId) {
+            void deleteFile(target.fileId).then((ok) => {
+              if (!ok) showToast(Locale.Chat.Attachments.DeleteFailed);
+            });
+          }
+        }}
+      />
+      <IconButton
+        icon={<AddIcon />}
+        text={
+          busy
+            ? Locale.Chat.Attachments.Uploading
+            : Locale.Chat.Attachments.Button
+        }
+        bordered
+        onClick={() => inputRef.current?.click()}
+      />
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept={ACCEPT_FILE}
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const picked = Array.from(e.currentTarget.files ?? []);
+          e.currentTarget.value = "";
+          void handleFiles(picked);
+        }}
+      />
+    </div>
+  );
+}
+
 const ContextPromptItem = memo(function ContextPromptItem(props: {
   index: number;
   prompt: ChatMessage;
@@ -324,6 +448,24 @@ const ContextPromptItem = memo(function ContextPromptItem(props: {
         )}
       </div>
 
+      {/* 编辑时的附件：可以新增（图片或文档）也可以删除 */}
+      <PromptAttachmentEditor
+        prompt={props.prompt}
+        onChange={(attachments) =>
+          props.onUpdate(props.index, {
+            ...props.prompt,
+            attachments,
+            content:
+              attachments.length > 0
+                ? rebuildContent(
+                    getMessageTextContent(props.prompt),
+                    attachments,
+                  )
+                : getMessageTextContent(props.prompt),
+          })
+        }
+      />
+
       {/* 只有 assistant 回复需要“是否生成完成”这个标记；取消勾选后消息上会出现「继续生成」 */}
       {!focusingInput && props.prompt.role === "assistant" && (
         <label
@@ -370,9 +512,19 @@ export function ContextPrompts(props: {
   const updateContextPrompt = useCallback(
     (i: number, prompt: ChatMessage) => {
       update((context) => {
+        const attachments = context[i].attachments ?? [];
         const images = getMessageImages(context[i]);
         context[i] = prompt;
-        if (images.length > 0) {
+
+        // 编辑文本时要把附件一起带上：图片块 + 文件块都要重建，
+        // 否则一保存就把文档从上下文里弄丢了。
+        if (attachments.length > 0) {
+          context[i].attachments = attachments;
+          context[i].content = rebuildContent(
+            getMessageTextContent(context[i]),
+            attachments,
+          );
+        } else if (images.length > 0) {
           const text = getMessageTextContent(context[i]);
           const newContext: MultimodalContent[] = [{ type: "text", text }];
           for (const img of images) {

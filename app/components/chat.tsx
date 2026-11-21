@@ -70,6 +70,18 @@ import { useSyncStore } from "../store/sync";
 import { uploadSessionNow } from "../utils/upload-one";
 import { attachInputDiagnostics } from "../utils/input-diag";
 import { getPortalHost } from "../utils/portal";
+import {
+  ACCEPT_FILE,
+  MAX_ATTACHMENTS,
+  deleteFile,
+  getMaxSizeMB,
+  getUploadPurpose,
+  isImageFile,
+  toChatAttachment,
+  uploadFile,
+} from "../utils/attachments";
+import { AttachmentChips, MessageAttachments } from "./attachments";
+import type { ChatAttachment } from "../store/chat";
 
 import {
   autoGrowTextArea,
@@ -712,6 +724,8 @@ function usePreventOverscroll(ref: RefObject<HTMLDivElement>) {
 
 export function ChatActions(props: {
   uploadImage: () => void;
+  /** 打开任意文件的选择框（文档 / 文本 / 表格） */
+  uploadFile: () => void;
   setAttachImages: (images: string[]) => void;
   setUploading: (uploading: boolean) => void;
   showPromptModal: () => void;
@@ -834,6 +848,13 @@ export function ChatActions(props: {
             onClick={props.uploadImage}
             text={Locale.Chat.InputActions.UploadImage}
             icon={props.uploading ? <LoadingButtonIcon /> : <ImageIcon />}
+          />
+        )}
+        {showUploadImage && (
+          <ChatAction
+            onClick={props.uploadFile}
+            text={Locale.Chat.Attachments.Button}
+            icon={<UploadIcon />}
           />
         )}
         <ChatAction
@@ -1274,6 +1295,11 @@ function _Chat() {
   const isMobileScreen = useMobileScreen();
   const navigate = useNavigate();
   const [attachImages, setAttachImages] = useState<string[]>([]);
+  /** 已上传（或上传中）的文件附件；图片仍走 attachImages */
+  const [attachFiles, setAttachFiles] = useState<ChatAttachment[]>([]);
+  /** 上传中 / 失败的状态：id → 文案 */
+  const [attachStatus, setAttachStatus] = useState<Record<string, string>>({});
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
   // prompt hints
@@ -1340,7 +1366,13 @@ function _Chat() {
   };
 
   const doSubmit = (userInput: string) => {
-    if (userInput.trim() === "" && isEmpty(attachImages)) return;
+    if (
+      userInput.trim() === "" &&
+      isEmpty(attachImages) &&
+      attachFiles.length === 0
+    ) {
+      return;
+    }
     const matchCommand = chatCommands.match(userInput);
     if (matchCommand.matched) {
       setUserInput("");
@@ -1350,7 +1382,7 @@ function _Chat() {
     }
     setIsLoading(true);
     chatStore
-      .onUserInput(userInput, attachImages)
+      .onUserInput(userInput, attachImages, false, attachFiles)
       .catch((error) => {
         // 正常情况下 onUserInput 内部已经吞掉了发送错误（消息先落库再发），
         // 这里只是兜底，避免出现 unhandled rejection 把页面带崩。
@@ -1358,6 +1390,7 @@ function _Chat() {
       })
       .finally(() => setIsLoading(false));
     setAttachImages([]);
+    setAttachFiles([]);
     chatStore.setLastInput(userInput);
     setUserInput("");
     setPromptHints([]);
@@ -1484,6 +1517,45 @@ function _Chat() {
     // 消息气泡上的删除按钮：先确认，避免手滑删掉整条回复
     if (!(await showConfirm(Locale.Chat.Actions.DeleteConfirm))) return;
     deleteMessage(msgId);
+  };
+
+  /**
+   * 删除某条消息上的一个附件。
+   *
+   * 同时做三件事：从 attachments 里移除、把 content 里对应的 image_url / file 块删掉
+   * （这样也不会再进入模型上下文）、尽力删掉云端文件。
+   */
+  const removeMessageAttachment = async (
+    message: ChatMessage,
+    attachmentId: string,
+  ) => {
+    const target = message.attachments?.find(
+      (item) => item.id === attachmentId,
+    );
+    if (!target) return;
+    if (!(await showConfirm(Locale.Chat.Attachments.DeleteConfirm))) return;
+
+    chatStore.updateTargetSession(session, (session) => {
+      const m = session.messages.find((item) => item.id === message.id);
+      if (!m) return;
+      m.attachments = (m.attachments ?? []).filter(
+        (item) => item.id !== attachmentId,
+      );
+      if (Array.isArray(m.content)) {
+        m.content = m.content.filter((block) => {
+          if (block.type === "file") return block.file_id !== target.fileId;
+          if (block.type === "image_url") {
+            return block.image_url?.url !== target.url;
+          }
+          return true;
+        });
+      }
+    });
+
+    if (target.fileId) {
+      const ok = await deleteFile(target.fileId);
+      if (!ok) showToast(Locale.Chat.Attachments.DeleteFailed);
+    }
   };
 
   const onResend = (message: ChatMessage) => {
@@ -2056,6 +2128,90 @@ function _Chat() {
     setAttachImages(images);
   }
 
+  /**
+   * 选择并上传文件（文档 / 文本 / 表格…）。
+   *
+   * 选完立即上传到 DeepSeek Files API，拿到 file_id 后挂在输入框上；
+   * 发送时只把这个 id 放进 content 的 file 块里。图片仍然走 attachImages。
+   */
+  async function uploadAttachFiles(picked: File[]) {
+    if (picked.length === 0) return;
+
+    const room = Math.max(0, MAX_ATTACHMENTS - attachFiles.length);
+    if (room === 0) {
+      showToast(Locale.Chat.Attachments.TooMany(MAX_ATTACHMENTS));
+      return;
+    }
+
+    setUploading(true);
+    try {
+      for (const file of picked.slice(0, room)) {
+        const isImage = isImageFile(file);
+        if (!getUploadPurpose(file.name, isImage)) {
+          showToast(Locale.Chat.Attachments.Unsupported(file.name));
+          continue;
+        }
+        const maxMB = getMaxSizeMB(file.name, isImage);
+        if (file.size > maxMB * 1024 * 1024) {
+          showToast(Locale.Chat.Attachments.TooLarge(file.name, maxMB));
+          continue;
+        }
+
+        const localId = `pending-${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}`;
+        // 先挂一个占位 chip：大文件上传要几秒，没有反馈会让人以为没反应
+        setAttachFiles((list) => [
+          ...list,
+          {
+            id: localId,
+            kind: isImage ? "image" : "file",
+            name: file.name,
+            bytes: file.size,
+            mime: file.type,
+          },
+        ]);
+        setAttachStatus((status) => ({
+          ...status,
+          [localId]: Locale.Chat.Attachments.Uploading,
+        }));
+
+        try {
+          const object = await uploadFile(file);
+          const attachment = toChatAttachment(file, object);
+          // 上传完成：把占位 chip 换成真正带 file_id 的附件
+          setAttachFiles((list) =>
+            list.map((item) => (item.id === localId ? attachment : item)),
+          );
+        } catch (e: any) {
+          console.error("[Files] upload failed", file.name, e);
+          setAttachFiles((list) => list.filter((item) => item.id !== localId));
+          showToast(Locale.Chat.Attachments.UploadFailed(e?.message ?? ""));
+        } finally {
+          setAttachStatus((status) => {
+            const next = { ...status };
+            delete next[localId];
+            return next;
+          });
+        }
+      }
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  /** 删除一个附件：先尝试删云端文件，再把它从输入框移除 */
+  async function removeAttachFile(id: string) {
+    const target = attachFiles.find((item) => item.id === id);
+    setAttachFiles((list) => list.filter((item) => item.id !== id));
+    if (target?.fileId) {
+      const ok = await deleteFile(target.fileId);
+      if (!ok) {
+        showToast(Locale.Chat.Attachments.DeleteFailed);
+      }
+    }
+  }
+
   // 快捷键 shortcut keys
   const [showShortcutKeyModal, setShowShortcutKeyModal] = useState(false);
 
@@ -2598,6 +2754,17 @@ function _Chat() {
                                 })}
                               </div>
                             )}
+                            {/* 文件附件卡片：用户消息上可以直接删除（同时删云端文件） */}
+                            <MessageAttachments
+                              attachments={message.attachments}
+                              onDelete={
+                                isUser
+                                  ? (id) => {
+                                      void removeMessageAttachment(message, id);
+                                    }
+                                  : undefined
+                              }
+                            />
                           </div>
                           {message?.audio_url && (
                             <div className={styles["chat-message-audio"]}>
@@ -2651,8 +2818,18 @@ function _Chat() {
                 onPromptSelect={onPromptSelect}
               />
 
+              {/* 已上传的文件附件：可逐个删除（会同时删云端文件） */}
+              <AttachmentChips
+                items={attachFiles}
+                onRemove={(id) => {
+                  void removeAttachFile(id);
+                }}
+                statusOf={(id) => attachStatus[id]}
+              />
+
               <ChatActions
                 uploadImage={uploadImage}
+                uploadFile={() => fileInputRef.current?.click()}
                 setAttachImages={setAttachImages}
                 setUploading={setUploading}
                 showPromptModal={() => setShowPromptModal(true)}
@@ -2671,6 +2848,19 @@ function _Chat() {
                 setShowShortcutKeyModal={setShowShortcutKeyModal}
                 setUserInput={setUserInput}
                 setShowChatSidePanel={setShowChatSidePanel}
+              />
+              {/* 任意文件（文档 / 文本 / 表格）；图片走上面的按钮 */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={ACCEPT_FILE}
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const picked = Array.from(e.currentTarget.files ?? []);
+                  e.currentTarget.value = "";
+                  void uploadAttachFiles(picked);
+                }}
               />
               <label
                 className={clsx(styles["chat-input-panel-inner"], {

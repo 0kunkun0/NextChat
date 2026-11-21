@@ -34,11 +34,13 @@ export const TTSModels = ["tts-1", "tts-1-hd"] as const;
 export type ChatModel = ModelType;
 
 export interface MultimodalContent {
-  type: "text" | "image_url";
+  type: "text" | "image_url" | "file";
   text?: string;
   image_url?: {
     url: string;
   };
+  /** DeepSeek Files API 上传后拿到的 file_id，用于引用文档 / 图片 */
+  file_id?: string;
 }
 
 export interface MultimodalContentForAlibaba {

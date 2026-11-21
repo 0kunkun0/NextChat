@@ -37,6 +37,21 @@ const en: LocaleType = {
     SubTitle: (count: number) => `${count} messages`,
     InputRestored:
       "The system removed your text — it has been restored automatically",
+    Attachments: {
+      Button: "Upload file",
+      Uploading: "Uploading…",
+      Uploaded: "Uploaded",
+      Delete: "Delete attachment",
+      DeleteConfirm:
+        "Delete this attachment? The file is removed from the server as well.",
+      DeleteFailed: "Removed locally, but deleting the remote file failed",
+      TooMany: (max: number) => `At most ${max} attachments`,
+      Unsupported: (name: string) => `Unsupported file type: ${name}`,
+      TooLarge: (name: string, mb: number) =>
+        `${name} is larger than the ${mb}MB limit`,
+      UploadFailed: (message: string) =>
+        `Upload failed${message ? `: ${message}` : ""}`,
+    },
     EditMessage: {
       Title: "Edit All Messages",
       Topic: {
@@ -299,6 +314,11 @@ const en: LocaleType = {
         "Pick a deepseek_data-*.zip exported from chat.deepseek.com; it is parsed locally and appended to the end of the session list (existing sessions are never overwritten, same-title sessions are skipped)",
       Button: "Choose export file",
       Importing: "Importing…",
+      PickTitle: (count: number) => `Choose sessions to import (${count})`,
+      SelectAll: "Select all",
+      SelectNone: "Deselect all",
+      NoneSelected: "Select at least one session",
+      ImportSelected: (count: number) => `Import ${count}`,
       Success: (count: number, skipped: number) =>
         skipped > 0
           ? `Imported ${count} session(s), skipped ${skipped}`

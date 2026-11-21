@@ -61,7 +61,8 @@ function exportOf(conversations: any[], version = 3) {
     "chat_session_index.json": conversations.map((item) => ({
       id: item.id,
       inserted_at: item.inserted_at,
-      updated_at: item.inserted_at,
+      updated_at: item.updated_at ?? item.inserted_at,
+      pinned: item.pinned === true,
     })),
   };
   for (const item of conversations) {
@@ -119,6 +120,40 @@ describe("parseDeepseekExport", () => {
     const result = parseDeepseekExport(zip);
     expect(result.imported).toHaveLength(0);
     expect(result.skipped[0].id).toBe("ghost");
+  });
+
+  test("同一文件里多个会话按「置顶优先 + 更新时间倒序」排列", () => {
+    const result = parseDeepseekExport(
+      exportOf([
+        conversation({
+          id: "old",
+          title: "很旧的会话",
+          inserted_at: "2026-01-01T10:00:00.000Z",
+        }),
+        conversation({
+          id: "pinned",
+          title: "置顶的会话",
+          pinned: true,
+          inserted_at: "2025-01-01T10:00:00.000Z",
+        }),
+        conversation({
+          id: "new",
+          title: "最新的会话",
+          inserted_at: "2026-11-01T10:00:00.000Z",
+        }),
+      ]),
+    );
+
+    // 置顶的排最前，其余按 updated_at 倒序
+    expect(result.imported.map((item) => item.title)).toEqual([
+      "置顶的会话",
+      "最新的会话",
+      "很旧的会话",
+    ]);
+    expect(result.imported[0].pinned).toBe(true);
+    expect(result.imported[1].pinned).toBe(false);
+    // 每条都带上消息条数，方便选择界面展示
+    expect(result.imported[0].messageCount).toBe(2);
   });
 
   test("同一文件里多个会话按索引顺序导入", () => {

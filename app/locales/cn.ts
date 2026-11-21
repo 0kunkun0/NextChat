@@ -35,6 +35,20 @@ const cn = {
   Chat: {
     SubTitle: (count: number) => `共 ${count} 条对话`,
     InputRestored: "检测到输入内容被系统误删，已自动恢复",
+    Attachments: {
+      Button: "上传文件",
+      Uploading: "上传中…",
+      Uploaded: "已上传",
+      Delete: "删除附件",
+      DeleteConfirm: "删除这个附件？会同时从云端删除该文件。",
+      DeleteFailed: "已从输入框移除，但云端文件删除失败",
+      TooMany: (max: number) => `最多只能挂 ${max} 个附件`,
+      Unsupported: (name: string) => `不支持的文件类型：${name}`,
+      TooLarge: (name: string, mb: number) =>
+        `${name} 超过 ${mb}MB 上限，请压缩后再上传`,
+      UploadFailed: (message: string) =>
+        `上传失败${message ? `：${message}` : ""}`,
+    },
     EditMessage: {
       Title: "编辑消息记录",
       Topic: {
@@ -295,6 +309,11 @@ const cn = {
         "选择官网导出的 deepseek_data-*.zip，在本地解析后追加到会话列表末尾（不覆盖已有会话，同标题的会跳过）",
       Button: "选择导出文件",
       Importing: "导入中…",
+      PickTitle: (count: number) => `选择要导入的会话（${count} 个）`,
+      SelectAll: "全选",
+      SelectNone: "取消全选",
+      NoneSelected: "至少选中一个会话",
+      ImportSelected: (count: number) => `导入 ${count} 个`,
       Success: (count: number, skipped: number) =>
         skipped > 0
           ? `已导入 ${count} 个会话，跳过 ${skipped} 个`

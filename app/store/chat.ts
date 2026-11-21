@@ -90,6 +90,29 @@ export type ChatMessage = RequestMessage & {
    * 消息上会出现「继续生成」按钮，用前缀补全接着写。
    */
   isComplete?: boolean;
+  /**
+   * 附件清单（图片 + 文件），用于界面展示和删除。
+   *
+   * 真正发给模型的是 `content` 里的 image_url / file 块；
+   * 这里额外保存文件名、大小、file_id 等信息，才能在消息里画出卡片并删除。
+   */
+  attachments?: ChatAttachment[];
+};
+
+/** 一条消息上挂的附件（图片或文件） */
+export type ChatAttachment = {
+  /** 本地 id，用于 React key / 删除定位 */
+  id: string;
+  kind: "image" | "file";
+  name: string;
+  bytes: number;
+  mime: string;
+  /** 图片的 data URL（本地预览兼发送内容） */
+  url?: string;
+  /** DeepSeek Files API 返回的 file_id */
+  fileId?: string;
+  /** 上传时的 purpose */
+  purpose?: string;
 };
 
 export function createMessage(override: Partial<ChatMessage>): ChatMessage {
@@ -538,6 +561,7 @@ export const useChatStore = createPersistStore(
         content: string,
         attachImages?: string[],
         isMcpResponse?: boolean,
+        attachFiles?: ChatAttachment[],
       ) {
         const session = get().currentSession();
         const modelConfig = session.mask.modelConfig;
@@ -547,20 +571,47 @@ export const useChatStore = createPersistStore(
           ? content
           : fillTemplateWith(content, modelConfig);
 
-        if (!isMcpResponse && attachImages && attachImages.length > 0) {
+        const files = (attachFiles ?? []).filter(
+          (file) => file.kind === "file" && file.fileId,
+        );
+        const hasImages = !!(attachImages && attachImages.length > 0);
+
+        if (!isMcpResponse && (hasImages || files.length > 0)) {
           mContent = [
             ...(content ? [{ type: "text" as const, text: content }] : []),
-            ...attachImages.map((url) => ({
+            ...(attachImages ?? []).map((url) => ({
               type: "image_url" as const,
               image_url: { url },
             })),
+            // 文档 / 文件：DeepSeek Files API 的 file 内容块
+            ...files.map((file) => ({
+              type: "file" as const,
+              file_id: file.fileId!,
+            })),
           ];
         }
+
+        // 附件清单只存本地需要展示的元信息（图片的 url、文件的 file_id）
+        const attachments: ChatAttachment[] | undefined =
+          !isMcpResponse && (hasImages || files.length > 0)
+            ? [
+                ...(attachImages ?? []).map((url, index) => ({
+                  id: `img-${index}-${Date.now()}`,
+                  kind: "image" as const,
+                  name: `图片 ${index + 1}`,
+                  bytes: 0,
+                  mime: "image/*",
+                  url,
+                })),
+                ...files,
+              ]
+            : undefined;
 
         const userMessage: ChatMessage = createMessage({
           role: "user",
           content: mContent,
           isMcpResponse,
+          attachments,
         });
 
         // 1. 先把 user 消息写进会话，再做任何可能失败的异步操作。
