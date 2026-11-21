@@ -29,7 +29,8 @@
   top: 0;
   left: 0;
   width: 100vw;
-  height: 100vh;
+  /* 用 --full-height（dvh）：100vh 在移动端会盖到地址栏后面的区域 */
+  height: var(--full-height);
   background-color: rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(5px);
 }
@@ -357,7 +358,7 @@
   position: fixed;
   top: 0;
   left: 0;
-  height: 100vh;
+  height: var(--full-height);
   width: 100vw;
   background-color: rgba(0, 0, 0, 0.5);
   display: flex;

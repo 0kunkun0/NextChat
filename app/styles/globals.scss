@@ -81,7 +81,21 @@
   --sidebar-width: 300px;
   --window-content-width: calc(100% - var(--sidebar-width));
   --message-max-width: 80%;
+  /**
+   * 视口高度。
+   *
+   * 移动端（尤其 iOS）用 100% 拿到的是「大视口」——包含被地址栏/工具栏
+   * 挡住的那部分，于是页面比真正可见区域高几十像素，手指继续往上滑就会
+   * 滚到那截看不见的区域（表现就是"聊天区不动、整页在动"）。
+   * 支持 dvh 的环境用 100dvh，正好等于当前可视高度。
+   */
   --full-height: 100%;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --full-height: 100dvh;
+  }
 }
 
 @media only screen and (max-width: 600px) {
@@ -108,6 +122,16 @@ html {
   height: var(--full-height);
   /* 移动端滚到边缘时不要带着整页回弹（iOS 16+ / Android） */
   overscroll-behavior: none;
+  /**
+   * 文档本身不滚动。
+   *
+   * iOS 15 不支持 overscroll-behavior（16 才支持），所以聊天列表划到底之后
+   * 继续滑，手势会被“链”给文档去看能不能滚 —— 只要文档有一点点可滚动量
+   * （100vh 和实际可视区差几十像素就够），就会看到整页跟着上下窜，
+   * 而聊天区因为已经到底反而"不动"。这里直接禁掉文档滚动，
+   * 滚动只发生在内部的 .chat-body / .window 里。
+   */
+  overflow: hidden;
 
   font-family: system-ui, "Noto Sans", "SF Pro SC", "SF Pro Text",
     "SF Pro Icons", "PingFang SC", "Helvetica Neue", "Helvetica", "Arial",
@@ -120,7 +144,8 @@ body {
   margin: 0;
   padding: 0;
   height: var(--full-height);
-  width: 100vw;
+  /* 用 100% 而不是 100vw：100vw 在桌面端会把滚动条宽度算进去，导致横向溢出 */
+  width: 100%;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -128,6 +153,8 @@ body {
   touch-action: pan-x pan-y;
   overflow: hidden;
   overscroll-behavior: none;
+  /* iOS 上不让整页跟随内部滚动做橡皮筋位移 */
+  position: relative;
 
   @media only screen and (max-width: 600px) {
     background-color: var(--second);

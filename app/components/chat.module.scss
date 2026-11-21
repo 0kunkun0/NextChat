@@ -406,7 +406,10 @@
   padding: 20px;
   padding-bottom: 40px;
   position: relative;
-  overscroll-behavior: none;
+  /* 划到顶/底之后手势不要再传给外层（iOS 16+ 生效，15 由 html 的 overflow 兜住） */
+  overscroll-behavior: contain;
+  /* iOS 上让内部滚动更跟手，避免等一次合成才动 */
+  -webkit-overflow-scrolling: touch;
 }
 
 .chat-body-main-title {
