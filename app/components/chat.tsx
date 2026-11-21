@@ -100,9 +100,12 @@ import {
 
 import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
 import {
+  canLoadEarlier,
+  clampRenderIndex,
   getChatScrollState,
   getStreamingScrollTarget,
   isScrollContentShort,
+  prevPageIndex,
 } from "@/app/utils/chat-scroll";
 
 import dynamic from "next/dynamic";
@@ -1788,18 +1791,29 @@ function _Chat() {
   );
 
   function setMsgRenderIndex(newIndex: number) {
-    newIndex = Math.min(renderMessages.length - chatPageSize, newIndex);
-    newIndex = Math.max(0, newIndex);
-    _setMsgRenderIndex(newIndex);
+    // 允许一直退到 0：短会话（16~29 条）以前被夹在上限上，
+    // 最早的几条永远渲染不出来
+    _setMsgRenderIndex(
+      clampRenderIndex(renderMessages.length, chatPageSize, newIndex),
+    );
   }
 
+  // 切换会话时重置渲染窗口：否则从长会话切到短会话还会沿用旧下标，窗口落空
+  useEffect(() => {
+    _setMsgRenderIndex(Math.max(0, renderMessages.length - chatPageSize));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.id]);
+
   const messages = useMemo(() => {
-    const endRenderIndex = Math.min(
-      msgRenderIndex + 3 * chatPageSize,
+    // 起始下标再兜一次底：状态可能是上一个会话留下的，越界会让窗口落空
+    const start = clampRenderIndex(
       renderMessages.length,
+      chatPageSize,
+      msgRenderIndex,
     );
-    return renderMessages.slice(msgRenderIndex, endRenderIndex);
-  }, [msgRenderIndex, renderMessages]);
+    const end = Math.min(start + 3 * chatPageSize, renderMessages.length);
+    return renderMessages.slice(start, end);
+  }, [msgRenderIndex, renderMessages, chatPageSize]);
 
   /**
    * 唯一一条还能“重新生成”的消息：
@@ -1884,19 +1898,19 @@ function _Chat() {
     const dom = scrollRef.current;
     if (!dom) return;
 
-    const canLoadPrev = msgRenderIndex - chatPageSize >= 0;
-    if (!canLoadPrev) return;
+    // 只要窗口前面还有消息就能往前补，不再要求「整整一页」
+    if (!canLoadEarlier(msgRenderIndex)) return;
     if (!isScrollContentShort(dom)) return;
 
     captureScrollAnchor(dom, "top");
-    setMsgRenderIndex(msgRenderIndex - chatPageSize);
+    setMsgRenderIndex(prevPageIndex(msgRenderIndex, chatPageSize));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [msgRenderIndex, chatPageSize]);
 
   const onChatBodyScroll = (e: HTMLElement) => {
-    const prevPageMsgIndex = msgRenderIndex - chatPageSize;
+    const prevPageMsgIndex = prevPageIndex(msgRenderIndex, chatPageSize);
     const nextPageMsgIndex = msgRenderIndex + chatPageSize;
-    const canLoadPrev = prevPageMsgIndex >= 0;
+    const canLoadPrev = canLoadEarlier(msgRenderIndex);
     // 窗口后面还有没渲染的消息时，当前位置只是“已加载部分的底部”，
     // 不能算真正的底部，否则一到底就会自动滚到最后一条
     const canLoadNext =

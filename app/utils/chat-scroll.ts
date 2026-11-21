@@ -69,3 +69,31 @@ export function getStreamingScrollTarget(params: {
     target: Math.min(bottom, messageTop),
   };
 }
+/* --------------------------- 渲染窗口（分页） --------------------------- */
+
+/**
+ * 渲染窗口的起始下标。
+ *
+ * 上限是 	otal - pageSize（保证底部那一屏还在窗口里），下限是 0。
+ * 以前“能不能往前翻”是用 index - pageSize >= 0 判断的，于是
+ * 16~29 条这种「不够两页」的会话会被夹在 index=1..14 上，
+ * 前面那几条永远加载不出来 —— 滚到最顶上就是看不到第一条消息。
+ */
+export function clampRenderIndex(
+  total: number,
+  pageSize: number,
+  index: number,
+): number {
+  const max = Math.max(0, total - pageSize);
+  return Math.max(0, Math.min(max, index));
+}
+
+/** 窗口前面还有没渲染的消息（只要有就该能继续往前翻） */
+export function canLoadEarlier(index: number): boolean {
+  return index > 0;
+}
+
+/** 往上翻一页的起点，夹到 0 */
+export function prevPageIndex(index: number, pageSize: number): number {
+  return Math.max(0, index - pageSize);
+}

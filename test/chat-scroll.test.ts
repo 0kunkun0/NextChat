@@ -1,8 +1,11 @@
 import {
   CHAT_EDGE_THRESHOLD,
+  canLoadEarlier,
+  clampRenderIndex,
   getChatScrollState,
   getStreamingScrollTarget,
   isScrollContentShort,
+  prevPageIndex,
 } from "../app/utils/chat-scroll";
 
 const base = { clientHeight: 800, isMobile: false, hasMoreBelow: false };
@@ -138,5 +141,59 @@ describe("isScrollContentShort", () => {
     expect(
       isScrollContentShort({ clientHeight: 800, scrollHeight: 2000 }),
     ).toBe(false);
+  });
+});
+/**
+ * 渲染窗口分页：16~29 条的短会话曾经看不到第一条消息。
+ *
+ * 旧逻辑：起始下标被夹在 	otal - pageSize，而「能不能往前翻」又要求
+ * index - pageSize >= 0。16 条会话的起始下标是 1，于是 index 永远减不到 0，
+ * 第 0 条消息永远渲染不出来（编辑弹窗里却能看到它）。
+ */
+describe("渲染窗口分页", () => {
+  const PAGE = 15;
+
+  test("16 条会话初始只隐藏第 1 条，但可以往前翻到 0", () => {
+    const initial = clampRenderIndex(16, PAGE, 16 - PAGE);
+    expect(initial).toBe(1);
+    // 旧逻辑这里是 false（1 - 15 < 0）→ 永远加载不出来
+    expect(canLoadEarlier(initial)).toBe(true);
+
+    const prev = prevPageIndex(initial, PAGE);
+    expect(prev).toBe(0);
+    expect(clampRenderIndex(16, PAGE, prev)).toBe(0);
+
+    // 窗口从 0 开始，第一条就在里面
+    const start = clampRenderIndex(16, PAGE, prev);
+    const window = Array.from({ length: 16 }, (_, i) => i).slice(
+      start,
+      start + 3 * PAGE,
+    );
+    expect(window[0]).toBe(0);
+    expect(window).toHaveLength(16);
+  });
+
+  test("20 条会话同样能翻到 0", () => {
+    const initial = clampRenderIndex(20, PAGE, 20 - PAGE);
+    expect(initial).toBe(5);
+    expect(canLoadEarlier(initial)).toBe(true);
+    expect(prevPageIndex(initial, PAGE)).toBe(0);
+  });
+
+  test("够长的会话往上翻一页只退一页，不会越界", () => {
+    expect(prevPageIndex(40, PAGE)).toBe(25);
+    expect(clampRenderIndex(40, PAGE, 25)).toBe(25);
+  });
+
+  test("下标上限保证底部那一屏仍在窗口里，下限是 0", () => {
+    expect(clampRenderIndex(16, PAGE, 999)).toBe(1);
+    expect(clampRenderIndex(16, PAGE, -5)).toBe(0);
+    // 消息不足一页
+    expect(clampRenderIndex(3, PAGE, 0)).toBe(0);
+    expect(clampRenderIndex(3, PAGE, 2)).toBe(0);
+  });
+
+  test("窗口前面没有消息时不再往前翻", () => {
+    expect(canLoadEarlier(0)).toBe(false);
   });
 });
