@@ -58,7 +58,11 @@ import {
   toChatAttachment,
   uploadFile,
 } from "../utils/attachments";
-import { CONTEXT_PAGE_SIZE, getContextWindow } from "../utils/context-prompt";
+import {
+  CONTEXT_PAGE_SIZE,
+  getContextWindow,
+  resolveEditedMessage,
+} from "../utils/context-prompt";
 import { Updater } from "../typing";
 import { ModelConfigList } from "./model-config";
 import { FileName, Path } from "../constant";
@@ -286,9 +290,6 @@ function PromptAttachmentEditor(props: {
   const [busy, setBusy] = useState(false);
   const attachments = props.prompt.attachments ?? [];
 
-  const append = (items: ChatAttachment[]) =>
-    props.onChange([...attachments, ...items]);
-
   const handleFiles = async (files: File[]) => {
     if (files.length === 0) return;
     const room = Math.max(0, MAX_ATTACHMENTS - attachments.length);
@@ -296,6 +297,17 @@ function PromptAttachmentEditor(props: {
       showToast(Locale.Chat.Attachments.TooMany(MAX_ATTACHMENTS));
       return;
     }
+
+    /**
+     * 在一次多选里，props 会在整轮处理结束前保持旧值，
+     * 所以这里自己维护一份累积列表，否则每次 append 都基于同一份旧数组，
+     * 后一个文件会把前一个覆盖掉（表现就是“选多个只上传一个”）。
+     */
+    let current = attachments.slice();
+    const append = (items: ChatAttachment[]) => {
+      current = [...current, ...items];
+      props.onChange(current);
+    };
 
     setBusy(true);
     try {
@@ -452,17 +464,9 @@ const ContextPromptItem = memo(function ContextPromptItem(props: {
       <PromptAttachmentEditor
         prompt={props.prompt}
         onChange={(attachments) =>
-          props.onUpdate(props.index, {
-            ...props.prompt,
-            attachments,
-            content:
-              attachments.length > 0
-                ? rebuildContent(
-                    getMessageTextContent(props.prompt),
-                    attachments,
-                  )
-                : getMessageTextContent(props.prompt),
-          })
+          // content 由父组件的 updateContextPrompt 统一重建（它知道旧消息里
+          // 还有哪些图片块），这里只负责把新的附件列表交上去
+          props.onUpdate(props.index, { ...props.prompt, attachments })
         }
       />
 
@@ -512,26 +516,14 @@ export function ContextPrompts(props: {
   const updateContextPrompt = useCallback(
     (i: number, prompt: ChatMessage) => {
       update((context) => {
-        const attachments = context[i].attachments ?? [];
-        const images = getMessageImages(context[i]);
-        context[i] = prompt;
-
-        // 编辑文本时要把附件一起带上：图片块 + 文件块都要重建，
-        // 否则一保存就把文档从上下文里弄丢了。
-        if (attachments.length > 0) {
-          context[i].attachments = attachments;
-          context[i].content = rebuildContent(
-            getMessageTextContent(context[i]),
-            attachments,
-          );
-        } else if (images.length > 0) {
-          const text = getMessageTextContent(context[i]);
-          const newContext: MultimodalContent[] = [{ type: "text", text }];
-          for (const img of images) {
-            newContext.push({ type: "image_url", image_url: { url: img } });
-          }
-          context[i].content = newContext;
-        }
+        /**
+         * 以「编辑后的附件」为准重建 content。
+         *
+         * 以前这里总是拿旧消息的 attachments 覆盖新消息，导致：
+         *   - 编辑时一次选多个文件只留下第一个（旧列表为空时那一次才生效）；
+         *   - 删除附件会被旧列表顶回来，看起来“删不掉”。
+         */
+        context[i] = resolveEditedMessage(context[i], prompt, rebuildContent);
       });
     },
     [update],
