@@ -353,6 +353,29 @@ const en: LocaleType = {
       Title: "Auto Generate Title",
       SubTitle: "Generate a suitable title based on the conversation content",
     },
+    RemoteImport: {
+      Title: "Import another backup from the database",
+      SubTitle:
+        "If the same Upstash database holds several backups (renamed index, shared deployments), read one by name and pull selected conversations back",
+      List: "List backups",
+      NameTitle: "Backup name",
+      NamePlaceholder: "e.g. nextchat / ikun-backup",
+      NameSubTitle: (count: number) =>
+        `${count} backup(s) found — pick one or type a name`,
+      NameSubTitleHint: 'Click "List backups" first, or type the index name',
+      Read: "Read and choose conversations",
+      Reading: "Reading…",
+      NeedName: "Enter a backup name first",
+      Empty: "This backup has no conversations to import",
+      NoBackups: "No other backups found in the database",
+      ListFailed: (message: string) => `Failed to list backups: ${message}`,
+      ReadFailed: (message: string) => `Read failed: ${message}`,
+      WrongPassword:
+        "Wrong password, decryption failed (the remembered key was cleared, please retry)",
+      Imported: (count: number) => `Imported ${count} conversation(s)`,
+      ImportedRenamed: (count: number, renamed: number) =>
+        `Imported ${count} conversation(s) (${renamed} renamed to avoid clashing with local ones)`,
+    },
     Knowledge: {
       Title: "Knowledge base",
       SubTitle:

@@ -99,6 +99,7 @@ import { getLocalAppState, setLocalAppState } from "../utils/sync";
 import { saveBackup } from "../utils/backup";
 import { DeepseekImportSection } from "./deepseek-import";
 import { KnowledgeSettingsSection } from "./knowledge-settings";
+import { RemoteBackupImportSection } from "./remote-backup-import";
 import {
   KNOWLEDGE_SYNC_KEY,
   exportKnowledgeJson,
@@ -1351,8 +1352,21 @@ function SyncItems() {
       {/* 从 DeepSeek 官网导出的 zip 导入会话（纯本地解析，追加不覆盖） */}
       <DeepseekImportSection />
 
-      {/* 知识库：导入 Markdown，会话里启用后按标题检索注入 */}
-      <KnowledgeSettingsSection />
+      {/* 从同一个 Upstash 库里的其它备份导入会话（加密备份会验证密码） */}
+      <RemoteBackupImportSection />
+
+      {/* 知识库：入口做成弹窗，内容在里面管理（导入 / 删除 / 统计） */}
+      <List>
+        <ListItem
+          title={Locale.Settings.Knowledge.Title}
+          subTitle={Locale.Settings.Knowledge.SubTitle}
+        >
+          <IconButton
+            text={Locale.Settings.Knowledge.Open}
+            onClick={() => setShowKnowledgeModal(true)}
+          />
+        </ListItem>
+      </List>
 
       {showBackupModal && (
         <div className="modal-mask">

@@ -1997,5 +1997,36 @@ export function createUpstashClient(
 
       return found;
     },
+
+    /**
+     * 列出**同一个数据库里**的所有备份名。
+     *
+     * 备份名就是 key 前缀（`<name>-v2-index` / 老格式 `<name>-chunk-count`），
+     * 也就是设置里「索引名 / UPSTASH_USERNAME」那一栏。同一个 Upstash 库被
+     * 多个部署共用、或者改过索引名时，旧数据会以别的前缀留在库里——
+     * 这个接口把它们找出来，供「从数据库导入其它备份」使用。
+     */
+    async listBackupNames(): Promise<string[]> {
+      const keys = await this.scanKeys("");
+      const names = new Set<string>();
+
+      for (const key of keys) {
+        const v2 = key.match(/^(.*)-v2-index$/);
+        if (v2 && v2[1]) {
+          names.add(v2[1]);
+          continue;
+        }
+        const legacy = key.match(/^(.*)-chunk-count$/);
+        if (legacy && legacy[1]) {
+          names.add(legacy[1]);
+          continue;
+        }
+        // 有些库只有老格式的整包 key，没有 chunk-count
+        const legacyBase = key.match(/^(.*)-chunk-0$/);
+        if (legacyBase && legacyBase[1]) names.add(legacyBase[1]);
+      }
+
+      return [...names].sort();
+    },
   };
 }

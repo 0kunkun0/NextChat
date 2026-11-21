@@ -816,3 +816,23 @@ pre {
   color: var(--danger);
   padding: 0 0 6px;
 }
+/* 从数据库导入其它备份 */
+.remote-import-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.remote-import-input {
+  min-width: 160px;
+  max-width: 260px;
+  flex: 1;
+  border: var(--border-in-light);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background-color: var(--white);
+  color: var(--black);
+  font-size: 13px;
+}

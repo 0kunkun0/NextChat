@@ -347,6 +347,28 @@ const cn = {
       Title: "自动生成标题",
       SubTitle: "根据对话内容生成合适的标题",
     },
+    RemoteImport: {
+      Title: "从数据库导入其它备份",
+      SubTitle:
+        "同一个 Upstash 库里如果有多份备份（换过索引名、多个部署共用一个库），可以按备份名读取并挑几条对话导回来",
+      List: "列出可用备份",
+      NameTitle: "备份名",
+      NamePlaceholder: "例如 nextchat / ikun-backup",
+      NameSubTitle: (count: number) =>
+        `数据库里发现 ${count} 份备份，可点选或直接输入`,
+      NameSubTitleHint: "先点「列出可用备份」，或直接输入索引名",
+      Read: "读取并选择会话",
+      Reading: "读取中…",
+      NeedName: "请先输入备份名",
+      Empty: "这份备份里没有可导入的会话",
+      NoBackups: "数据库里没发现其它备份",
+      ListFailed: (message: string) => `列出备份失败：${message}`,
+      ReadFailed: (message: string) => `读取失败：${message}`,
+      WrongPassword: "密码不对，解密失败（已清掉本机记住的密钥，请重试）",
+      Imported: (count: number) => `已导入 ${count} 条对话`,
+      ImportedRenamed: (count: number, renamed: number) =>
+        `已导入 ${count} 条对话（其中 ${renamed} 条与本地重名，已另存为副本）`,
+    },
     Knowledge: {
       Title: "知识库",
       SubTitle:
