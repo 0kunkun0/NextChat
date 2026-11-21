@@ -289,6 +289,36 @@ const cn = {
       Title: "自动生成标题",
       SubTitle: "根据对话内容生成合适的标题",
     },
+    DeepseekImport: {
+      Title: "从 DeepSeek 导入会话",
+      SubTitle:
+        "选择官网导出的 deepseek_data-*.zip，在本地解析后追加到会话列表末尾（不覆盖已有会话，同标题的会跳过）",
+      Button: "选择导出文件",
+      Importing: "导入中…",
+      Success: (count: number, skipped: number) =>
+        skipped > 0
+          ? `已导入 ${count} 个会话，跳过 ${skipped} 个`
+          : `已导入 ${count} 个会话`,
+      NoImportable: (skipped: number) =>
+        `没有可导入的会话${skipped > 0 ? `（跳过 ${skipped} 个）` : ""}`,
+      AllDuplicated: (count: number) =>
+        `${count} 个会话本地都已存在，未重复导入`,
+      Failed: (reason: string) => `导入失败：${reason}`,
+      TooLarge: "压缩包超过 128MB，请在电脑上解压后分批导入",
+      Reason: (raw: string) => {
+        const map: Record<string, string> = {
+          "too-large": "压缩包太大",
+          "unreadable-archive": "不是可读取的 ZIP 压缩包",
+          "missing-manifest": "缺少 manifest.json",
+          "missing-index": "缺少 chat_session_index.json",
+          "unsupported-version": "导出格式版本不支持（只支持 v3）",
+          "conversation has no messages": "会话里没有任何消息",
+          "conversation has no importable turn": "会话没有可导入的问答",
+          "message parent cycle": "消息树有环，已跳过",
+        };
+        return map[raw] ?? raw;
+      },
+    },
     Sync: {
       CloudState: "云端数据",
       NotSyncYet: "还没有进行过同步",

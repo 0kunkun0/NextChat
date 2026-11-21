@@ -1,3 +1,5 @@
 public/serviceWorker.js
 app/mcp/mcp_config.json
 app/mcp/mcp_config.default.json
+# 上游 DSH 插件的源码副本，只作参考，不参与本项目构建 / 检查
+deepseek-chat-import

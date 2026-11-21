@@ -38,6 +38,7 @@ dev
 
 .vscode
 .idea
+deepseek-chat-import
 
 # docker-compose env files
 .env

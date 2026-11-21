@@ -13,7 +13,12 @@ const config: Config = {
   testMatch: ["**/*.test.js", "**/*.test.ts", "**/*.test.jsx", "**/*.test.tsx"],
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
   // NextChat 是另一个仓库的 submodule，别把它那份过期的测试也算进来
-  testPathIgnorePatterns: ["/node_modules/", "<rootDir>/NextChat/"],
+  // deepseek-chat-import 是上游 DSH 插件的源码副本（含 .spec），同样排除
+  testPathIgnorePatterns: [
+    "/node_modules/",
+    "<rootDir>/NextChat/",
+    "<rootDir>/deepseek-chat-import/",
+  ],
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/$1",
     // fflate 默认走 ESM，jest 里用它的 CJS 构建

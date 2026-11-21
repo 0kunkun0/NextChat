@@ -293,6 +293,37 @@ const en: LocaleType = {
       Title: "Auto Generate Title",
       SubTitle: "Generate a suitable title based on the conversation content",
     },
+    DeepseekImport: {
+      Title: "Import sessions from DeepSeek",
+      SubTitle:
+        "Pick a deepseek_data-*.zip exported from chat.deepseek.com; it is parsed locally and appended to the end of the session list (existing sessions are never overwritten, same-title sessions are skipped)",
+      Button: "Choose export file",
+      Importing: "Importing…",
+      Success: (count: number, skipped: number) =>
+        skipped > 0
+          ? `Imported ${count} session(s), skipped ${skipped}`
+          : `Imported ${count} session(s)`,
+      NoImportable: (skipped: number) =>
+        `Nothing to import${skipped > 0 ? ` (skipped ${skipped})` : ""}`,
+      AllDuplicated: (count: number) =>
+        `All ${count} session(s) already exist locally, nothing imported again`,
+      Failed: (reason: string) => `Import failed: ${reason}`,
+      TooLarge: "The archive is larger than 128MB, please split it",
+      Reason: (raw: string) => {
+        const map: Record<string, string> = {
+          "too-large": "archive too large",
+          "unreadable-archive": "not a readable ZIP archive",
+          "missing-manifest": "manifest.json is missing",
+          "missing-index": "chat_session_index.json is missing",
+          "unsupported-version": "unsupported export version (only v3)",
+          "conversation has no messages": "the conversation has no messages",
+          "conversation has no importable turn":
+            "no importable Q&A in the conversation",
+          "message parent cycle": "the message tree has a cycle",
+        };
+        return map[raw] ?? raw;
+      },
+    },
     Sync: {
       CloudState: "Last Update",
       NotSyncYet: "Not sync yet",
