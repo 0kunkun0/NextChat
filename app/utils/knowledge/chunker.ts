@@ -271,8 +271,12 @@ function buildSections(
   level: number,
   paths: Map<number, string>,
 ): RawSection[] {
-  const cuts = headings.filter((h) => h.level <= level);
+  // 只认 ATX 标题（`#` 开头）。EULA / 合同这类文本常用 Setext
+  // （正文行下面跟一行 `---`），那是正文分隔而不是章节，不能拿它切。
+  const atx = headings.filter((h) => !h.setext);
+  const cuts = atx.filter((h) => h.level <= level);
   if (cuts.length === 0) {
+    // 没有 `#` 标题：整篇作为一节（EULA、纯文本都走这里）
     return [makeSection(lines, 0, lines.length - 1, null, paths)];
   }
 
@@ -310,8 +314,10 @@ function subdivide(
   maxChars: number,
   paths: Map<number, string>,
 ): RawSection[] | null {
+  // 同 buildSections：只用 ATX 标题切，Setext 的 `---` 不算标题
   const inside = headings.filter(
     (h) =>
+      !h.setext &&
       h.line > parent.startLine &&
       h.line <= parent.endLine &&
       h.level > parent.level,
