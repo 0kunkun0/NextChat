@@ -69,6 +69,7 @@ import { useLowMemoryStore } from "../store/low-memory";
 import { useSyncStore } from "../store/sync";
 import { useKnowledgeStore } from "../store/knowledge";
 import { showKnowledgePreview } from "./knowledge-preview";
+import { showKnowledgeSectionPicker } from "./knowledge-picker";
 import { uploadSessionNow } from "../utils/upload-one";
 import { attachInputDiagnostics } from "../utils/input-diag";
 import { getPortalHost } from "../utils/portal";
@@ -300,6 +301,40 @@ export function SessionConfigModel(props: { onClose: () => void }) {
                         session.knowledge = {
                           ...session.knowledge,
                           debugPreview,
+                        };
+                      });
+                    }}
+                  />
+                </ListItem>
+              )}
+
+              {/* 手动挑片段：文档标题常是「概述」这种泛化词，自动检索选不准时点名 */}
+              {session.knowledge?.enabled && (
+                <ListItem
+                  title={Locale.Chat.Knowledge.PinnedButton}
+                  subTitle={
+                    session.knowledge?.sectionIds?.length
+                      ? Locale.Chat.Knowledge.PinnedCount(
+                          session.knowledge.sectionIds.length,
+                        )
+                      : Locale.Chat.Knowledge.PinnedNone
+                  }
+                >
+                  <IconButton
+                    text={Locale.Chat.Knowledge.PinnedButton}
+                    onClick={async () => {
+                      const sections = await useKnowledgeStore
+                        .getState()
+                        .listSections();
+                      const picked = await showKnowledgeSectionPicker({
+                        sections,
+                        selected: session.knowledge?.sectionIds ?? [],
+                      });
+                      if (picked === null) return;
+                      chatStore.updateTargetSession(session, (session) => {
+                        session.knowledge = {
+                          ...session.knowledge,
+                          sectionIds: picked,
                         };
                       });
                     }}
@@ -1450,11 +1485,18 @@ function _Chat() {
 
     if (session.knowledge?.enabled) {
       try {
-        const result = await useKnowledgeStore.getState().retrieve(userInput, {
-          budgetTokens: 40000,
-          candidates: 8,
-          minChars: 200,
-        });
+        const pinned = session.knowledge?.sectionIds ?? [];
+        const result =
+          pinned.length > 0
+            ? // 手动勾选了片段：只注入这些，不再做检索
+              await useKnowledgeStore.getState().retrievePinned(pinned, {
+                budgetTokens: 40000,
+              })
+            : await useKnowledgeStore.getState().retrieve(userInput, {
+                budgetTokens: 40000,
+                candidates: 8,
+                minChars: 200,
+              });
 
         if (session.knowledge?.debugPreview) {
           // 预览要等用户点确定；取消就什么都不做

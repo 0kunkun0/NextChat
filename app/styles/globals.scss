@@ -692,3 +692,127 @@ pre {
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* 知识库片段选择弹窗 */
+.knowledge-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 68vh;
+}
+
+.knowledge-picker-hint {
+  font-size: 12px;
+  opacity: 0.75;
+  line-height: 1.5;
+}
+
+.knowledge-picker-filters {
+  display: flex;
+  gap: 8px;
+
+  input,
+  select {
+    flex: 1;
+    min-width: 0;
+    border: var(--border-in-light);
+    border-radius: 8px;
+    padding: 6px 10px;
+    background-color: var(--white);
+    color: var(--black);
+    font-size: 13px;
+  }
+}
+
+.knowledge-picker-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.knowledge-picker-count {
+  margin-right: auto;
+}
+
+.knowledge-picker-link {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--link);
+  font-size: 12px;
+}
+
+.knowledge-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.knowledge-picker-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px;
+  border: var(--border-in-light);
+  border-radius: 8px;
+  background-color: var(--white);
+  cursor: pointer;
+
+  &.is-checked {
+    border-color: var(--primary);
+  }
+
+  input[type="checkbox"] {
+    margin-top: 3px;
+  }
+}
+
+.knowledge-picker-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.knowledge-picker-title {
+  font-size: 13px;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.knowledge-picker-meta {
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+.knowledge-picker-preview {
+  font-size: 12px;
+  opacity: 0.8;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.knowledge-picker-empty {
+  padding: 16px 0;
+  text-align: center;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.knowledge-picker-more {
+  align-self: center;
+  padding: 8px 0;
+}
+.knowledge-preview-mode {
+  opacity: 0.8;
+}
+
+.knowledge-preview-warn {
+  font-size: 12px;
+  color: var(--danger);
+  padding: 0 0 6px;
+}

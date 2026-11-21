@@ -72,7 +72,18 @@ export function KnowledgePreviewDialog(props: {
               {debug
                 ? Locale.Chat.Knowledge.PreviewStats(debug.docs, debug.chunks)
                 : null}
+              {debug?.mode === "pinned" ? (
+                <span className="knowledge-preview-mode">
+                  {" "}
+                  · {Locale.Chat.Knowledge.PinnedMode}
+                </span>
+              ) : null}
             </div>
+            {debug?.missingPinned ? (
+              <div className="knowledge-preview-warn">
+                {Locale.Chat.Knowledge.PinnedMissing(debug.missingPinned)}
+              </div>
+            ) : null}
             {result.hits.length === 0 ? (
               <div className="knowledge-preview-empty">{emptyReason}</div>
             ) : (

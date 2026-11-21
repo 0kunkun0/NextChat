@@ -11,6 +11,7 @@ import {
 import {
   buildIndex,
   formatInjection,
+  pinnedHits,
   search,
   type KnowledgeChunk,
   type KnowledgeIndex,
@@ -44,6 +45,13 @@ type KnowledgeState = {
     query: string,
     options?: SearchOptions,
   ) => Promise<KnowledgeResult>;
+  /** 只注入手动勾选的片段（不做检索） */
+  retrievePinned: (
+    sectionIds: string[],
+    options?: SearchOptions,
+  ) => Promise<KnowledgeResult>;
+  /** 列出所有片段，供「选择知识库片段」弹窗使用 */
+  listSections: () => Promise<KnowledgeChunk[]>;
 };
 
 export type SearchOptions = {
@@ -62,6 +70,10 @@ export type KnowledgeDebug = {
   reason?: "empty-query" | "no-docs" | "no-match";
   /** 是否靠“去掉最小字数限制”的兜底才命中 */
   usedFallback?: boolean;
+  /** 本次用的是手动勾选的片段还是自动检索 */
+  mode?: "pinned" | "search";
+  /** 手动勾选的片段里有几个已经不在库里（文档被删/换过） */
+  missingPinned?: number;
 };
 
 export type KnowledgeResult = {
@@ -199,6 +211,7 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
         queryTokens: tokens,
         reason: injected.length > 0 ? undefined : "no-match",
         usedFallback: strict.length === 0 && loose.length > 0,
+        mode: "search",
       },
     };
 
@@ -217,6 +230,64 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
     }
 
     return result;
+  },
+
+  async retrievePinned(sectionIds, options = {}) {
+    const tokens: string[] = [];
+    const empty = (reason: KnowledgeDebug["reason"]): KnowledgeResult => ({
+      hits: [],
+      text: "",
+      tokens: 0,
+      empty: true,
+      debug: {
+        docs: get().docs.length,
+        chunks: get().index?.chunks.length ?? 0,
+        queryTokens: tokens,
+        reason,
+        mode: "pinned",
+      },
+    });
+
+    if (sectionIds.length === 0) return empty("empty-query");
+
+    if (get().indexSignature === "" || get().index === null) {
+      await get().refresh();
+    }
+    const index = get().index;
+    if (!index || index.chunks.length === 0) return empty("no-docs");
+
+    const byId = new Map(index.chunks.map((chunk) => [chunk.id, chunk]));
+    const picked = sectionIds
+      .map((id) => byId.get(id))
+      .filter((chunk): chunk is KnowledgeChunk => !!chunk);
+
+    // 文档被删/重新导入后，旧 id 会失效——把缺口报出来，方便界面提示
+    const missingPinned = sectionIds.length - picked.length;
+
+    const chunksInOrder = picked.slice();
+    const hits = pinnedHits(chunksInOrder, options);
+
+    return {
+      hits,
+      text: formatInjection(hits),
+      tokens: hits.reduce((sum, hit) => sum + hit.estTokens, 0),
+      empty: hits.length === 0,
+      debug: {
+        docs: get().docs.length,
+        chunks: index.chunks.length,
+        queryTokens: tokens,
+        reason: hits.length === 0 ? "no-match" : undefined,
+        mode: "pinned",
+        missingPinned,
+      },
+    };
+  },
+
+  async listSections() {
+    if (get().indexSignature === "" || get().index === null) {
+      await get().refresh();
+    }
+    return get().index?.chunks ?? [];
   },
 }));
 

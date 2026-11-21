@@ -73,6 +73,24 @@ const en: LocaleType = {
       EmptyQuery: "The input is empty, nothing to retrieve",
       PreviewConfirm: "Send",
       PreviewCancel: "Cancel",
+      PickTitle: "Choose knowledge sections for this session",
+      PickHint:
+        'Checked sections are injected verbatim on every send (no retrieval). Headings are often generic like "Overview", so use the preview below to pick.',
+      PickSearchPlaceholder: "Filter by heading / body / document name…",
+      PickAllDocs: (count: number) => `All documents (${count})`,
+      PickSelected: (selected: number, total: number) =>
+        `${selected} of ${total} section(s) selected`,
+      PickSelectNone: "Clear selection",
+      PickSelectFiltered: (count: number) => `Select all filtered (${count})`,
+      PickNoMatch: "Nothing matched — try another keyword",
+      PickMore: (rest: number) => `${rest} more section(s), click to load`,
+      PickConfirm: (count: number) => `OK (${count})`,
+      PinnedCount: (count: number) => `${count} section(s) selected`,
+      PinnedNone: "None selected (retrieve automatically when sending)",
+      PinnedButton: "Choose sections",
+      PinnedMode: "Manually selected sections",
+      PinnedMissing: (count: number) =>
+        `${count} selected section(s) are no longer in the knowledge base (document removed or re-imported); they will be skipped`,
       Badge: (sections: number, tokens: number) =>
         `📚 ${sections} section(s) · ${tokens} tokens`,
       Truncated: "Section too long, truncated at a code-fence boundary",

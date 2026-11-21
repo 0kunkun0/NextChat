@@ -69,6 +69,24 @@ const cn = {
       EmptyQuery: "输入框是空的，没有可检索的内容",
       PreviewConfirm: "确认发送",
       PreviewCancel: "取消",
+      PickTitle: "选择本次使用的知识库片段",
+      PickHint:
+        "勾选的片段会在每次发送时原样注入（不做检索）。标题常是「概述」这种泛化词，请参考下面的正文预览来选。",
+      PickSearchPlaceholder: "按标题 / 正文 / 文档名过滤…",
+      PickAllDocs: (count: number) => `全部文档（${count} 个）`,
+      PickSelected: (selected: number, total: number) =>
+        `已选 ${selected} 节 / 共 ${total} 节`,
+      PickSelectNone: "清空选择",
+      PickSelectFiltered: (count: number) => `选中全部筛选结果（${count}）`,
+      PickNoMatch: "没有匹配的片段，换个关键字试试",
+      PickMore: (rest: number) => `还有 ${rest} 节，点击显示更多`,
+      PickConfirm: (count: number) => `确定（${count} 节）`,
+      PinnedCount: (count: number) => `已选 ${count} 节`,
+      PinnedNone: "未选择（发送时按问题自动检索）",
+      PinnedButton: "选择片段",
+      PinnedMode: "手动选择的片段",
+      PinnedMissing: (count: number) =>
+        `${count} 个已选片段在知识库里找不到了（文档可能被删除或重新导入），发送时会跳过`,
       Badge: (sections: number, tokens: number) =>
         `📚 知识库 ${sections} 节 · ${tokens} token`,
       Truncated: "本节过长，已按代码块边界截断",

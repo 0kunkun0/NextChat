@@ -263,6 +263,38 @@ function listLineRatio(text: string): number {
 }
 
 /**
+ * 手动挑好的片段：不做检索，直接按给定顺序装填进预算。
+ *
+ * 用于「会话设置里勾选本次要用的知识库片段」——用户自己点名要哪几节，
+ * 比任何检索都准（尤其是文档标题都叫「概述」这类泛化标题时）。
+ */
+export function pinnedHits(
+  chunks: KnowledgeChunk[],
+  options: SearchOptions = {},
+): SearchHit[] {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const hits: SearchHit[] = [];
+  let used = 0;
+
+  for (const chunk of chunks) {
+    const maxForSection = Math.min(
+      opts.maxSectionTokens,
+      Math.max(1000, opts.budgetTokens - used),
+    );
+    const { text, truncated } = truncateSectionSafe(chunk, maxForSection);
+    const estTokens = truncated ? maxForSection : chunk.estTokens;
+
+    if (used + estTokens > opts.budgetTokens && hits.length > 0) break;
+
+    hits.push({ chunk, score: 0, text, estTokens, truncated });
+    used += estTokens;
+    if (used >= opts.budgetTokens) break;
+  }
+
+  return hits;
+}
+
+/**
  * 把检索结果拼成注入给模型的 Markdown 片段。
  * @param hits 检索结果
  */

@@ -241,6 +241,12 @@ export interface ChatSession {
   knowledge?: {
     enabled?: boolean;
     debugPreview?: boolean;
+    /**
+     * 手动勾选的知识库片段（section id）。
+     * 非空时发送不再做检索，只注入这些片段——文档标题常是「概述」这类
+     * 泛化词，自动检索选不准时可以直接点名。
+     */
+    sectionIds?: string[];
   };
 }
 
