@@ -48,6 +48,44 @@ export function getModelProvider(modelWithProvider: string): [string, string?] {
   return [model, provider];
 }
 
+/**
+ * 把「服务商 id / 任意大小写」解析成规范的 `ServiceProvider` 值。
+ *
+ * `defaultModel`（服务端配置）里写的是 provider **id**，例如
+ * `deepseek-chat@deepseek`。直接把 `"deepseek"` 当成 providerName 用，
+ * `getClientApi()` 匹配不到任何分支、会落到默认的 GPT 客户端，
+ * 请求就打到 `/api/openai` 上——于是服务端的模型白名单里
+ * `deepseek-chat@openai` 不可用，报 "you are not allowed to use deepseek-chat model"。
+ */
+export function resolveProviderName(
+  name?: string,
+): ServiceProvider | undefined {
+  if (!name) return undefined;
+
+  const values = Object.values(ServiceProvider) as string[];
+  // 已经是合法枚举值
+  if (values.includes(name)) return name as ServiceProvider;
+
+  // 忽略大小写匹配枚举值（deepseek → DeepSeek）
+  const lower = name.toLowerCase();
+  const byValue = values.find((value) => value.toLowerCase() === lower);
+  if (byValue) return byValue as ServiceProvider;
+
+  // 再按模型表里的 provider.id 反查（deepseek / moonshot / xai …）
+  const byId = DEFAULT_MODELS.find(
+    (model) => (model.provider?.id ?? "").toLowerCase() === lower,
+  );
+  return (byId?.provider?.providerName as ServiceProvider) ?? undefined;
+}
+
+/** 只知道模型名时，从模型表推断它的服务商 */
+export function inferProviderName(
+  modelName: string,
+): ServiceProvider | undefined {
+  const entry = DEFAULT_MODELS.find((model) => model.name === modelName);
+  return (entry?.provider?.providerName as ServiceProvider) ?? undefined;
+}
+
 export function collectModelTable(
   models: readonly LLMModel[],
   customModels: string,

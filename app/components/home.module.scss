@@ -300,18 +300,41 @@
     display: flex;
     flex-direction: column;
     justify-content: center;
+    align-items: center;
+    gap: 2px;
 
+    /**
+     * 收起状态下的会话缩略：以前是「绝对定位 + scale(4) + 0.2 透明度」，
+     * 把模型头像放大成一张巨大的水印压在数字后面，看着很抽象。
+     * 现在按正常比例显示一个小图标，数字在它下面。
+     */
     .chat-item-avatar {
       display: flex;
       justify-content: center;
-      opacity: 0.2;
-      position: absolute;
-      transform: scale(4);
+      align-items: center;
+      position: static;
+      transform: none;
+      opacity: 0.9;
+
+      .user-avatar {
+        width: 20px;
+        min-width: 20px;
+        height: 20px;
+        min-height: 20px;
+        border-radius: 7px;
+      }
+
+      img,
+      svg {
+        width: 16px;
+        height: 16px;
+      }
     }
 
     .chat-item-narrow-count {
-      font-size: 24px;
+      font-size: 22px;
       font-weight: bolder;
+      line-height: 1.1;
       text-align: center;
       color: var(--primary);
       opacity: 0.6;

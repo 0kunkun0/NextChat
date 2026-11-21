@@ -375,7 +375,20 @@ export function getHeaders(ignoreHeaders: boolean = false) {
 }
 
 export function getClientApi(provider: ServiceProvider): ClientApi {
-  switch (provider) {
+  /**
+   * 兼容历史数据：`providerName` 里可能存的是 provider **id**（例如 "deepseek"），
+   * 而不是 `ServiceProvider` 的枚举值（"DeepSeek"）。
+   * 以前匹配不到任何分支就落到默认的 GPT 客户端，请求打到 /api/openai，
+   * 服务端模型白名单判定 `deepseek-chat@openai` 不可用 → 403。
+   */
+  const normalized =
+    typeof provider === "string"
+      ? ((Object.values(ServiceProvider) as string[]).find(
+          (value) => value.toLowerCase() === provider.toLowerCase(),
+        ) as ServiceProvider | undefined) ?? provider
+      : provider;
+
+  switch (normalized) {
     case ServiceProvider.Google:
       return new ClientApi(ModelProvider.GeminiPro);
     case ServiceProvider.Anthropic:

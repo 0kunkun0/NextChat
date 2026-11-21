@@ -457,7 +457,9 @@ pre {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 8px 10px 0;
+  /* 往上抬 4px：别贴着输入面板的边框，和上面的提示行也留出呼吸感 */
+  padding: 2px 10px 0;
+  margin-top: -4px;
 }
 
 .attachment-chip {

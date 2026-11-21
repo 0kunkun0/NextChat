@@ -35,7 +35,11 @@ import { createPersistStore } from "../utils/store";
 import { estimateTokenLength } from "../utils/token";
 import { ModelConfig, ModelType, useAppConfig } from "./config";
 import { useAccessStore } from "./access";
-import { collectModelsWithDefaultModel } from "../utils/model";
+import {
+  collectModelsWithDefaultModel,
+  inferProviderName,
+  resolveProviderName,
+} from "../utils/model";
 import { createEmptyMask, Mask } from "./mask";
 import { executeMcpAction, getAllTools, isMcpEnabled } from "../mcp/actions";
 import { extractMcpJson, isMcpJson } from "../mcp/utils";
@@ -1561,7 +1565,7 @@ export const useChatStore = createPersistStore(
   },
   {
     name: StoreKey.Chat,
-    version: 3.3,
+    version: 3.4,
     migrate(persistedState, version) {
       const state = persistedState as any;
       const newState = JSON.parse(
@@ -1623,6 +1627,32 @@ export const useChatStore = createPersistStore(
           const config = useAppConfig.getState();
           s.mask.modelConfig.compressModel = "";
           s.mask.modelConfig.compressProviderName = "";
+        });
+      }
+
+      /**
+       * 修正历史数据里写错的 providerName。
+       *
+       * 服务端 `defaultModel` 用的是 provider id（`deepseek-chat@deepseek`），
+       * 早前的代码把它原样塞进了 `modelConfig.providerName`，导致
+       * `getClientApi()` 匹配不到、请求被发到 /api/openai，服务端模型白名单
+       * 报 "you are not allowed to use deepseek-chat model"。
+       */
+      if (version < 3.4) {
+        newState.sessions.forEach((s) => {
+          const config = s?.mask?.modelConfig;
+          if (!config) return;
+          const resolved =
+            resolveProviderName(config.providerName as any) ??
+            inferProviderName(config.model);
+          if (resolved) config.providerName = resolved;
+
+          if (config.compressProviderName) {
+            const compress = resolveProviderName(
+              config.compressProviderName as any,
+            );
+            if (compress) config.compressProviderName = compress;
+          }
         });
       }
 

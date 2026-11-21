@@ -24,7 +24,11 @@ import { getClientConfig } from "../config/client";
 import { createPersistStore } from "../utils/store";
 import { ensure } from "../utils/clone";
 import { DEFAULT_CONFIG } from "./config";
-import { getModelProvider } from "../utils/model";
+import {
+  getModelProvider,
+  inferProviderName,
+  resolveProviderName,
+} from "../utils/model";
 
 let fetchState = 0; // 0 not fetch, 1 fetching, 2 done
 
@@ -307,9 +311,17 @@ export const useAccessStore = createPersistStore(
         .then((res) => {
           const defaultModel = res.defaultModel ?? "";
           if (defaultModel !== "") {
-            const [model, providerName] = getModelProvider(defaultModel);
+            const [model, providerId] = getModelProvider(defaultModel);
             DEFAULT_CONFIG.modelConfig.model = model;
-            DEFAULT_CONFIG.modelConfig.providerName = providerName as any;
+            /**
+             * 服务端 `defaultModel` 里写的是 provider **id**（`deepseek-chat@deepseek`），
+             * 而 modelConfig.providerName 必须是 ServiceProvider 的枚举值（"DeepSeek"）。
+             * 以前直接 `providerName as any`，于是新会话把请求发到了 /api/openai，
+             * 服务端模型白名单（-all,+deepseek-chat@deepseek）判定不允许 → 403。
+             */
+            const resolved =
+              resolveProviderName(providerId) ?? inferProviderName(model);
+            if (resolved) DEFAULT_CONFIG.modelConfig.providerName = resolved;
           }
 
           return res;
