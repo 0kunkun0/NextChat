@@ -843,3 +843,26 @@ pre {
   border-radius: 2px;
   padding: 0 1px;
 }
+/* mermaid 代码 / 图表切换 */
+.mermaid-switch {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin: 6px 0 2px;
+
+  button {
+    border: var(--border-in-light);
+    background-color: var(--white);
+    color: var(--black);
+    border-radius: 6px;
+    padding: 2px 10px;
+    font-size: 12px;
+    cursor: pointer;
+
+    &[aria-pressed="true"] {
+      background-color: var(--primary);
+      color: var(--white);
+      border-color: var(--primary);
+    }
+  }
+}

@@ -118,6 +118,8 @@ const cn = {
       PinToastAction: "查看",
       Delete: "删除",
       DeleteConfirm: "确认删除这条消息？",
+      Code: "代码",
+      Diagram: "图表",
       ImageUploadFailed: "图片处理失败",
       Edit: "编辑",
       FullScreen: "全屏",

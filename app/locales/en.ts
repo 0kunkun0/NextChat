@@ -122,6 +122,8 @@ const en: LocaleType = {
       PinToastAction: "View",
       Delete: "Delete",
       DeleteConfirm: "Delete this message?",
+      Code: "Code",
+      Diagram: "Diagram",
       ImageUploadFailed: "Failed to process image",
       Edit: "Edit",
       FullScreen: "FullScreen",

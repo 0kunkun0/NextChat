@@ -8,6 +8,7 @@ import RehypeHighlight from "rehype-highlight";
 import { useRef, useState, RefObject, useEffect, useMemo } from "react";
 import { copyToClipboard, useWindowSize } from "../utils";
 import { getMarkdownInput, remarkFixLiteralStrong } from "../utils/markdown";
+import { useThrottleMarkdownRender } from "../utils/use-throttle-markdown";
 import mermaid from "mermaid";
 import Locale from "../locales";
 import LoadingIcon from "../icons/three-dots.svg";
@@ -77,6 +78,8 @@ export function PreCode(props: { children: any }) {
   const ref = useRef<HTMLPreElement>(null);
   const previewRef = useRef<HTMLPreviewHandler>(null);
   const [mermaidCode, setMermaidCode] = useState("");
+  /** mermaid 默认显示图表，可切回源码（参考 DeepSeek demo 的交互） */
+  const [showMermaidDiagram, setShowMermaidDiagram] = useState(true);
   const [htmlCode, setHtmlCode] = useState("");
   const { height } = useWindowSize();
   const chatStore = useChatStore();
@@ -230,10 +233,18 @@ function CustomCode(props: { children: any; className?: string }) {
   );
 }
 
-function _MarkDownContent(props: { content: string }) {
+function _MarkDownContent(props: { content: string; streaming?: boolean }) {
+  /**
+   * 流式时按「上次渲染耗时」节流：每个 token 都整段重新解析会把低端机主线程堵死，
+   * 表现就是“越写越卡”。`streaming` 变 false 后立刻用完整内容渲染，不会丢内容。
+   */
+  const throttled = useThrottleMarkdownRender(
+    props.content,
+    props.streaming === true,
+  );
   const escapedContent = useMemo(() => {
-    return getMarkdownInput(props.content);
-  }, [props.content]);
+    return getMarkdownInput(throttled);
+  }, [throttled]);
 
   // 低占用模式：代码高亮会给每个代码块生成大量 span，
   // 长对话里是内存和渲染时间的大头，这里直接跳过
@@ -307,6 +318,8 @@ export function Markdown(
   props: {
     content: string;
     loading?: boolean;
+    /** 正在流式输出：内容会持续变化，按渲染耗时节流 */
+    streaming?: boolean;
     fontSize?: number;
     fontFamily?: string;
     parentRef?: RefObject<HTMLDivElement>;
@@ -329,7 +342,7 @@ export function Markdown(
       {props.loading ? (
         <LoadingIcon />
       ) : (
-        <MarkdownContent content={props.content} />
+        <MarkdownContent content={props.content} streaming={props.streaming} />
       )}
     </div>
   );
