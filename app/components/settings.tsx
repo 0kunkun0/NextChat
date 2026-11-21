@@ -99,6 +99,12 @@ import { getLocalAppState, setLocalAppState } from "../utils/sync";
 import { saveBackup } from "../utils/backup";
 import { DeepseekImportSection } from "./deepseek-import";
 import { KnowledgeSettingsSection } from "./knowledge-settings";
+import {
+  KNOWLEDGE_SYNC_KEY,
+  exportKnowledgeJson,
+  importKnowledgeJson,
+} from "../utils/knowledge/sync";
+import { useKnowledgeStore } from "../store/knowledge";
 import { LocalBackupSection } from "./local-backup";
 import { SyncConflictModal } from "./sync-conflict";
 import {
@@ -652,6 +658,8 @@ function SyncItems() {
   const refreshBackups = () => setBackupRefreshKey((n) => n + 1);
   /** 本地备份改成弹窗显示 */
   const [showBackupModal, setShowBackupModal] = useState(false);
+  /** 知识库改成弹窗入口（和本地备份一致，不再把文档列表挂满设置页） */
+  const [showKnowledgeModal, setShowKnowledgeModal] = useState(false);
   /**
    * 「删除云端已不存在的会话」：默认关闭，勾选后只对**下一次**上传生效，
    * 上传完自动取消勾选，避免误删。
@@ -765,6 +773,13 @@ function SyncItems() {
 
       // 先让「上传中」这一帧渲染出来，再去做 JSON 序列化 / 分片这类重活
       await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // 知识库一起传（按 store 走增量：没变就不重传）
+      const knowledgeJson = await exportKnowledgeJson().catch((e) => {
+        console.warn("[Knowledge] export for sync failed", e);
+        return undefined;
+      });
+
       const stats = await client.upload(
         local,
         (done, total) => setSyncProgress({ done, total }),
@@ -778,6 +793,9 @@ function SyncItems() {
             : undefined,
           // 勾选了「删除云端已不存在的会话」才传，且只对这一次生效
           deleteMissing: deleteMissingOnUpload,
+          extraStores: knowledgeJson
+            ? { [KNOWLEDGE_SYNC_KEY]: knowledgeJson }
+            : undefined,
         },
       );
       if (deleteMissingOnUpload) setDeleteMissingOnUpload(false);
@@ -805,6 +823,26 @@ function SyncItems() {
     } finally {
       setSyncProgress(null);
       setSyncJob(null);
+    }
+  };
+
+  /**
+   * 把下载结果里的知识库 payload 写进 IndexedDB，并从 state 里剔除这个 key。
+   *
+   * 知识库不是 AppState 的一部分（它在独立的 IndexedDB 库里），
+   * 所以不能交给 setLocalAppState；这个 key 也不该参与 mergeAppState。
+   */
+  const applyRemoteKnowledge = async (remote: any) => {
+    const json = remote?.[KNOWLEDGE_SYNC_KEY];
+    if (typeof json !== "string") return;
+    try {
+      const { docs, chunks } = await importKnowledgeJson(json);
+      await useKnowledgeStore.getState().refresh();
+      console.info("[Knowledge] restored from cloud", { docs, chunks });
+    } catch (e) {
+      console.warn("[Knowledge] restore from cloud failed", e);
+    } finally {
+      delete remote[KNOWLEDGE_SYNC_KEY];
     }
   };
 
@@ -846,6 +884,8 @@ function SyncItems() {
         showToast(Locale.Settings.Sync.NoRemoteData);
         return;
       }
+      // 知识库单独落到 IndexedDB（它不是 AppState 的一部分）
+      await applyRemoteKnowledge(remote);
       // 只有完整下载成功才会覆盖本地数据
       setLocalAppState(remote);
       syncStore.markDownloadTime();
@@ -906,6 +946,9 @@ function SyncItems() {
         showToast(Locale.Settings.Sync.NoRemoteData);
         return;
       }
+
+      // 同步：知识库同样先落地（它不参与 mergeAppState 的会话/面具合并）
+      await applyRemoteKnowledge(remote);
 
       const plan = planSync(local, remote, syncStore.lastSyncedHashes ?? {});
 
@@ -1325,6 +1368,24 @@ function SyncItems() {
             ]}
           >
             <LocalBackupSection refreshKey={backupRefreshKey} />
+          </Modal>
+        </div>
+      )}
+
+      {showKnowledgeModal && (
+        <div className="modal-mask">
+          <Modal
+            title={Locale.Settings.Knowledge.ModalTitle}
+            onClose={() => setShowKnowledgeModal(false)}
+            actions={[
+              <IconButton
+                key="close"
+                text={Locale.UI.Close}
+                onClick={() => setShowKnowledgeModal(false)}
+              />,
+            ]}
+          >
+            <KnowledgeSettingsSection />
           </Modal>
         </div>
       )}

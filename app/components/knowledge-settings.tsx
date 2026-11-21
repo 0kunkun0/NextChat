@@ -6,11 +6,13 @@ import { IconButton } from "./button";
 import { List, ListItem, showConfirm, showToast } from "./ui-lib";
 import AddIcon from "../icons/add.svg";
 import DeleteIcon from "../icons/delete.svg";
+import UploadIcon from "../icons/upload.svg";
 
 /**
- * 设置页里的知识库管理：导入 Markdown、查看统计、删除文档。
+ * 知识库管理（弹窗内容）：导入 Markdown、查看统计、删除文档。
  *
- * 知识库只存本机 IndexedDB，不参与云同步（1.9MB 文本文档塞进同步会拖垮备份）。
+ * 知识库存在本机 IndexedDB；如果开启了云同步，会作为额外 store 一起上传
+ * （见 utils/knowledge/sync.ts）。
  */
 export function KnowledgeSettingsSection() {
   const store = useKnowledgeStore();
@@ -35,12 +37,20 @@ export function KnowledgeSettingsSection() {
   return (
     <List>
       <ListItem
-        title={Locale.Settings.Knowledge.Title}
-        subTitle={Locale.Settings.Knowledge.SubTitle}
+        title={
+          store.docs.length === 0
+            ? Locale.Settings.Knowledge.Empty
+            : Locale.Settings.Knowledge.Stats(
+                store.docs.length,
+                totalSections,
+                totalChars,
+              )
+        }
+        subTitle={Locale.Settings.Knowledge.LocalOnly}
       >
         <div style={{ display: "flex", gap: 8 }}>
           <IconButton
-            icon={<AddIcon />}
+            icon={<UploadIcon />}
             text={
               store.importing
                 ? Locale.Settings.Knowledge.Importing
@@ -77,21 +87,6 @@ export function KnowledgeSettingsSection() {
         />
       </ListItem>
 
-      <ListItem
-        title={
-          store.docs.length === 0
-            ? Locale.Settings.Knowledge.Empty
-            : Locale.Settings.Knowledge.Stats(
-                store.docs.length,
-                totalSections,
-                totalChars,
-              )
-        }
-        subTitle={Locale.Settings.Knowledge.LocalOnly}
-      >
-        <span />
-      </ListItem>
-
       {store.docs.map((doc) => (
         <ListItem
           key={doc.id}
@@ -113,6 +108,19 @@ export function KnowledgeSettingsSection() {
           />
         </ListItem>
       ))}
+
+      {store.docs.length === 0 && (
+        <ListItem
+          title={Locale.Settings.Knowledge.EmptyHintTitle}
+          subTitle={Locale.Settings.Knowledge.EmptyHintSubTitle}
+        >
+          <IconButton
+            icon={<AddIcon />}
+            text={Locale.Settings.Knowledge.Import}
+            onClick={() => inputRef.current?.click()}
+          />
+        </ListItem>
+      )}
     </List>
   );
 }

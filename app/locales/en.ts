@@ -338,6 +338,11 @@ const en: LocaleType = {
       SubTitle:
         "Import Markdown documents, split by heading into retrieval units; only used when enabled in a session (off by default)",
       Import: "Import Markdown",
+      ModalTitle: "Knowledge base",
+      Open: "Open knowledge base",
+      EmptyHintTitle: "No documents yet",
+      EmptyHintSubTitle:
+        "Imported files are split by Markdown heading; retrieval only runs when enabled in a session",
       Importing: "Importing…",
       Empty: "No documents imported yet",
       Stats: (docs: number, sections: number, chars: number) =>

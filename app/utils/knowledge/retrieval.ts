@@ -13,6 +13,7 @@ import {
   looksLikeIdentifier,
   termFrequencies,
   tokenizeQuery,
+  tokenizeRaw,
 } from "./tokenize";
 
 export type KnowledgeChunk = MarkdownSection & {
@@ -48,6 +49,8 @@ export type KnowledgeIndex = {
   /** 每节加权长度 */
   lengths: number[];
   avgLength: number;
+  /** 每节里“列表行 / 目录行”的占比，用来压低 TOC 章节 */
+  listRatios: number[];
 };
 
 const DEFAULT_OPTIONS: Required<SearchOptions> = {
@@ -64,6 +67,7 @@ const B = 0.75;
 export function buildIndex(chunks: KnowledgeChunk[]): KnowledgeIndex {
   const postings = new Map<string, Map<number, number>>();
   const lengths: number[] = new Array(chunks.length).fill(0);
+  const listRatios: number[] = new Array(chunks.length).fill(0);
 
   chunks.forEach((chunk, index) => {
     const tf = termFrequencies(`${chunk.headingPath}\n${chunk.text}`);
@@ -78,6 +82,7 @@ export function buildIndex(chunks: KnowledgeChunk[]): KnowledgeIndex {
       list.set(index, weight);
     }
     lengths[index] = length;
+    listRatios[index] = listLineRatio(chunk.text);
   });
 
   const total = lengths.reduce((sum, n) => sum + n, 0);
@@ -87,6 +92,7 @@ export function buildIndex(chunks: KnowledgeChunk[]): KnowledgeIndex {
     postings,
     lengths,
     avgLength: chunks.length ? total / chunks.length : 0,
+    listRatios,
   };
 }
 
@@ -143,7 +149,15 @@ export function search(
   options: SearchOptions = {},
 ): SearchHit[] {
   const opts = { ...DEFAULT_OPTIONS, ...options };
-  const queryTokens = tokenizeQuery(query);
+  /**
+   * 查询里的通用中文 bigram（「是什 / 什么 / 怎么 / 如何」…）几乎每篇文档都有，
+   * 「XXX 是什么」这类问法会因此被这些词带着跑。tokenizeQuery 会滤掉它们；
+   * 万一整句都被滤空（比如只问「是什么」），再退回未过滤的切分结果。
+   */
+  let queryTokens = tokenizeQuery(query);
+  if (queryTokens.length === 0) {
+    queryTokens = [...new Set(tokenizeRaw(query))];
+  }
   if (queryTokens.length === 0) return [];
 
   // 原始查询里的标识符（区分大小写），用于精确命中
@@ -159,16 +173,33 @@ export function search(
   for (let i = 0; i < index.chunks.length; i++) {
     const chunk = index.chunks[i];
     if (chunk.chars < opts.minChars) continue;
-    const score = scoreChunk(index, i, queryTokens, identifiers);
-    if (score > 0) scored.push({ chunkIndex: i, score });
+    const raw = scoreChunk(index, i, queryTokens, identifiers);
+    if (raw <= 0) continue;
+    scored.push({
+      chunkIndex: i,
+      score:
+        raw *
+        sizePenalty(chunk.chars) *
+        listPenalty(index.listRatios?.[i] ?? 0, chunk.chars),
+    });
   }
 
   scored.sort((a, b) => b.score - a.score);
 
+  /**
+   * 丢掉“陪跑”的弱命中。
+   *
+   * 像「XXX 是什么」这种问法，查询词里有一半是「是什 / 什么」这类通用 bigram，
+   * 几乎每篇文档都有，于是分数很低但非零的巨型章节会挤进结果，
+   * 看起来就是“检索到的东西和问题不相关”。只保留与最高分同量级的命中。
+   */
+  const top = scored[0]?.score ?? 0;
+  const relevant = scored.filter((item) => item.score >= top * 0.25);
+
   // 按预算装填：依次纳入候选，直到超预算
   const hits: SearchHit[] = [];
   let used = 0;
-  for (const candidate of scored.slice(0, opts.candidates)) {
+  for (const candidate of relevant.slice(0, opts.candidates)) {
     const chunk = index.chunks[candidate.chunkIndex];
     const maxForSection = Math.min(
       opts.maxSectionTokens,
@@ -191,6 +222,44 @@ export function search(
   }
 
   return hits;
+}
+
+/**
+ * 超长章节的降权系数。
+ *
+ * 一个 8 万字的“模块大杂烩”只要出现过查询词就会攒出高分，
+ * 但它大概率不是用户要的答案；按 log 曲线压一压，3k 字以下的节不受影响。
+ */
+function sizePenalty(chars: number): number {
+  if (chars <= 3000) return 1;
+  return 1 / (1 + 0.35 * Math.log10(chars / 3000));
+}
+
+/**
+ * 目录 / 链接清单的降权系数。
+ *
+ * 很多文档有「目录」小节，里面把每个章节名都列了一遍：查询词只要出现过一次，
+ * 它就会拿到不低的分（短节 + 高 idf），结果正文反而排在后面。
+ * 列表行占比超过 60% 的短节按目录处理，压到 0.55。
+ */
+function listPenalty(ratio: number, chars: number): number {
+  if (chars > 4000) return 1;
+  return ratio > 0.6 ? 0.55 : 1;
+}
+
+/** 一个节里“列表行”占非空行的比例 */
+function listLineRatio(text: string): number {
+  const lines = text.split("\n");
+  let nonEmpty = 0;
+  let listLike = 0;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    nonEmpty += 1;
+    // - / * / + 开头，或 1. 2. 这类有序列表
+    if (/^([-*+]\s|\d+[.)]\s)/.test(trimmed)) listLike += 1;
+  }
+  return nonEmpty === 0 ? 0 : listLike / nonEmpty;
 }
 
 /**

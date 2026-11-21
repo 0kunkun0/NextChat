@@ -43,11 +43,16 @@ console.log("query tokens:", tokenizeQuery(query).slice(0, 30));
 
 let index = buildIndex(chunks);
 let hits = search(index, query, { minChars: 200, candidates: 8 });
-console.log(`hits=${hits.length} tokens=${hits.reduce((s, h) => s + h.estTokens, 0)}`);
+console.log(
+  `hits=${hits.length} tokens=${hits.reduce((s, h) => s + h.estTokens, 0)}`,
+);
 for (const hit of hits.slice(0, 5)) {
   console.log(
-    `  ${hit.score.toFixed(2)}  ${hit.chunk.docName} :: ${hit.chunk.headingPath.slice(0, 80)} (${hit.chunk.chars}字)`,
+    `  ${hit.score.toFixed(2)}  ${
+      hit.chunk.docName
+    } :: ${hit.chunk.headingPath.slice(0, 80)} (${hit.chunk.chars}字)`,
   );
+  console.log("     text:", hit.text.replace(/\s+/g, " ").slice(0, 160));
 }
 
 if (hits.length === 0) {
@@ -65,7 +70,9 @@ if (hits.length === 0) {
   console.log(`不限制 minChars 时 hits=${loose.length}`);
   for (const hit of loose.slice(0, 5)) {
     console.log(
-      `  ${hit.score.toFixed(2)}  ${hit.chunk.docName} :: ${hit.chunk.headingPath.slice(0, 80)} (${hit.chunk.chars}字)`,
+      `  ${hit.score.toFixed(2)}  ${
+        hit.chunk.docName
+      } :: ${hit.chunk.headingPath.slice(0, 80)} (${hit.chunk.chars}字)`,
     );
   }
 }

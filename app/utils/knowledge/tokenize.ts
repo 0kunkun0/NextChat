@@ -59,6 +59,49 @@ const STOPWORDS = new Set([
 
 const CJK = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 
+/**
+ * 查询里的“无信息量”中文 bigram。
+ *
+ * 「XXX 是什么」「怎么用」这类问法如果把这些词也算进相关性，
+ * 几乎每篇文档都会命中，真正的实体反而被稀释。只在**查询侧**过滤，
+ * 索引侧保留（不影响文档自身的分词）。
+ */
+const CJK_STOP_BIGRAMS = new Set([
+  "是什",
+  "什么",
+  "么是",
+  "是怎",
+  "怎么",
+  "怎样",
+  "么样",
+  "如何",
+  "为什",
+  "哪些",
+  "哪个",
+  "是否",
+  "可以",
+  "应该",
+  "需要",
+  "一个",
+  "这个",
+  "那个",
+  "请问",
+  "告诉",
+  "介绍",
+  "一下",
+  "有没",
+  "没有",
+  "我们",
+  "你们",
+  "他们",
+  "多少",
+  "的是",
+  "是什",
+  "是如",
+  "么用",
+  "用法是",
+]);
+
 /** 一段文本拆成 token（未去重、未计权重） */
 export function tokenizeRaw(text: string): string[] {
   const tokens: string[] = [];
@@ -131,9 +174,26 @@ export function splitIdentifier(word: string): string[] {
   return [...out].filter((t) => !STOPWORDS.has(t));
 }
 
-/** 查询串 → 去重后的 token 列表 */
+/**
+ * 只是虚词 / 语气词拼出来的 bigram，没有检索价值。
+ *
+ * 典型误伤：「怎么设置」切出的「么设」与「什么设计」的「么设」是同一个 bigram，
+ * 于是问「怎么设置超时」会命中一段讲「为什么设计此文档」的正文。
+ * 首字是「么 / 怎 / 的 / 是」的 bigram、尾字是「的 / 了 / 呢」的短词，查询侧直接丢掉。
+ */
+const NOISE_PREFIX = new Set("么怎的了吗呢吧啊呀是");
+const NOISE_SUFFIX = new Set("的了吗呢吧啊呀哦");
+
+function isNoiseBigram(token: string): boolean {
+  if (token.length !== 2) return false;
+  return NOISE_PREFIX.has(token[0]) || NOISE_SUFFIX.has(token[1]);
+}
+
+/** 查询串 → 去重后的 token 列表（滤掉通用中文 bigram 与代码关键字） */
 export function tokenizeQuery(query: string): string[] {
-  return [...new Set(tokenizeRaw(query))].filter((t) => !STOPWORDS.has(t));
+  return [...new Set(tokenizeRaw(query))].filter(
+    (t) => !STOPWORDS.has(t) && !CJK_STOP_BIGRAMS.has(t) && !isNoiseBigram(t),
+  );
 }
 
 /** 判断一个 token 像不像代码标识符（用于精确命中加权） */

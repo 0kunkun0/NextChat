@@ -120,3 +120,31 @@ export async function clearKnowledge(): Promise<void> {
   }
   await set(DOCS_KEY, { docs: [] }, store);
 }
+
+/**
+ * 用云同步的 payload 覆盖整个知识库（不做重新切分，保持节与云端一致）。
+ * @param payload 文档元信息 + 分块
+ */
+export async function replaceAllFromSync(payload: {
+  docs: DocMeta[];
+  chunks: KnowledgeChunk[];
+}): Promise<void> {
+  await clearKnowledge();
+
+  const byDoc = new Map<string, KnowledgeChunk[]>();
+  for (const chunk of payload.chunks) {
+    const list = byDoc.get(chunk.docId) ?? [];
+    list.push(chunk);
+    byDoc.set(chunk.docId, list);
+  }
+
+  for (const doc of payload.docs) {
+    await set(
+      docKey(doc.id),
+      { doc, chunks: byDoc.get(doc.id) ?? [] } satisfies DocRecord,
+      store,
+    );
+  }
+
+  await set(DOCS_KEY, { docs: payload.docs }, store);
+}

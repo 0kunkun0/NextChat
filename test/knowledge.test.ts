@@ -261,3 +261,84 @@ ${"后续".repeat(500)}
     expect(result.text).toBe(sections[0].text);
   });
 });
+
+describe("排序改进：通用词与巨型章节", () => {
+  function chunksFrom(docs: Array<{ name: string; text: string }>) {
+    const chunks: KnowledgeChunk[] = [];
+    for (const doc of docs) {
+      const { sections } = chunkMarkdown(doc.text, { minChars: 0 });
+      sections.forEach((section, index) => {
+        chunks.push({
+          ...section,
+          id: `${doc.name}-${index}`,
+          docId: doc.name,
+          docName: doc.name,
+        });
+      });
+    }
+    return chunks;
+  }
+
+  test("「XXX 是什么」里的通用 bigram 不参与检索", () => {
+    expect(tokenizeQuery("ikun.net 是什么")).toEqual(["ikun", "net"]);
+    expect(tokenizeQuery("怎么使用 ikun")).not.toContain("怎么");
+  });
+
+  test("相关的小章节排在巨型章节前面", () => {
+    // 巨型章节：1 万字大杂烩里只顺带提了一次 ikun.net
+    const filler = "无关正文。".repeat(2000);
+    const chunks = chunksFrom([
+      {
+        name: "big.md",
+        text: md(`
+## 大杂烩
+
+${filler}
+
+顺带提一句 ikun.net 也在里面。
+`),
+      },
+      {
+        name: "small.md",
+        text: md(`
+## ikun.net 是什么
+
+ikun.net 是 C# 互操作层，提供托管调用入口。
+`),
+      },
+    ]);
+
+    const index = buildIndex(chunks);
+    const hits = search(index, "ikun.net 是什么", { minChars: 0 });
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0].chunk.docName).toBe("small.md");
+  });
+  test("和最高分差距过大的“陪跑”结果会被丢掉", () => {
+    const chunks = chunksFrom([
+      {
+        name: "hit.md",
+        text: md(`
+## 超时设置
+
+SetTimeout 用于设置连接超时，单位毫秒。
+`),
+      },
+      {
+        name: "noise.md",
+        text: md(`
+## 其它
+
+${"全是无关内容。".repeat(800)}
+
+末尾顺带提一次超时。
+`),
+      },
+    ]);
+
+    const index = buildIndex(chunks);
+    const hits = search(index, "超时怎么设置", { minChars: 0 });
+    expect(hits.length).toBeGreaterThan(0);
+    // 只有真正相关的那个留下
+    expect(hits.every((hit) => hit.chunk.docName === "hit.md")).toBe(true);
+  });
+});

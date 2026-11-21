@@ -332,6 +332,11 @@ const cn = {
       SubTitle:
         "导入 Markdown 文档，按标题切分成检索单元；只在会话里启用后才会参与检索（默认关闭）",
       Import: "导入 Markdown",
+      ModalTitle: "知识库",
+      Open: "打开知识库",
+      EmptyHintTitle: "还没有文档",
+      EmptyHintSubTitle:
+        "导入后会按 Markdown 标题切分成检索单元；会话里启用后才会参与检索",
       Importing: "导入中…",
       Empty: "还没有导入任何文档",
       Stats: (docs: number, sections: number, chars: number) =>

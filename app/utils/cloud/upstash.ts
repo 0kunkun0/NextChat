@@ -891,6 +891,11 @@ export function createUpstashClient(
          * 默认 false（上传永不删），只有用户手动勾选时才传 true。
          */
         deleteMissing?: boolean;
+        /**
+         * 额外的键值对（例如知识库），按 store 的方式一起上传。
+         * name 会出现在索引的 stores 里，下载时原样返回。
+         */
+        extraStores?: Record<string, string>;
       },
     ): Promise<{
       uploaded: number;
@@ -1010,6 +1015,16 @@ export function createUpstashClient(
         const json = JSON.stringify(state[name] ?? {});
         return { name, json, hash: hashString(json) };
       });
+
+      // 知识库之类的附加 store：和普通 store 一样参与哈希比对 / 增量上传
+      for (const [name, json] of Object.entries(options?.extraStores ?? {})) {
+        if (typeof json !== "string") continue;
+        localStores.push({
+          name: name as StoreKey,
+          json,
+          hash: hashString(json),
+        });
+      }
       prepared += localStores.length;
       const hashMs = Date.now() - hashStartedAt;
 
