@@ -2687,8 +2687,13 @@ function _Chat() {
                   onInput={(e) => onInput(e.currentTarget.value)}
                   value={userInput}
                   onKeyDown={onInputKeyDown}
-                  onFocus={scrollToBottom}
-                  onClick={scrollToBottom}
+                  /*
+                   * 这里原来挂了 onFocus / onClick = scrollToBottom：
+                   * 只要把光标点进输入框，就会强制把对话拉回最新一条，
+                   * 正在往上翻历史的时候特别烦（移动端键盘一弹出更明显）。
+                   * 现在聚焦、点击都不再改变滚动位置；需要回到底部时用
+                   * 右下角的按钮，发送消息时也照旧会自动滚到最新。
+                   */
                   onPaste={handlePaste}
                   rows={inputRows}
                   autoFocus={autoFocus}
