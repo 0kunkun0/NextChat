@@ -12,6 +12,7 @@ import { fetch as tauriStreamFetch } from "./utils/stream";
 import { VISION_MODEL_REGEXES, EXCLUDE_VISION_MODEL_REGEXES } from "./constant";
 import { useAccessStore } from "./store";
 import { ModelSize } from "./typing";
+import { getPortalHost } from "./utils/portal";
 
 export function trimTopic(topic: string) {
   // Fix an issue where double quotes still show in the Indonesian language
@@ -37,7 +38,8 @@ export async function copyToClipboard(text: string) {
   } catch (error) {
     const textArea = document.createElement("textarea");
     textArea.value = text;
-    document.body.appendChild(textArea);
+    // 挂到固定弹层容器：body 的子节点归 React 管，外部增删会导致 removeChild 崩溃
+    getPortalHost().appendChild(textArea);
     textArea.focus();
     textArea.select();
     try {
@@ -46,7 +48,8 @@ export async function copyToClipboard(text: string) {
     } catch (error) {
       showToast(Locale.Copy.Failed);
     }
-    document.body.removeChild(textArea);
+    // remove() 是安全的：节点已经不在文档里时也不会抛 NotFoundError
+    textArea.remove();
   }
 }
 
@@ -85,11 +88,11 @@ export async function downloadAs(text: string, filename: string) {
     element.setAttribute("download", filename);
 
     element.style.display = "none";
-    document.body.appendChild(element);
+    getPortalHost().appendChild(element);
 
     element.click();
 
-    document.body.removeChild(element);
+    element.remove();
   }
 }
 
@@ -187,7 +190,7 @@ function getOrCreateMeasureDom(id: string, init?: (dom: HTMLElement) => void) {
     dom.style.pointerEvents = "none";
     dom.style.opacity = "0";
     dom.id = id;
-    document.body.appendChild(dom);
+    getPortalHost().appendChild(dom);
     init?.(dom);
   }
 

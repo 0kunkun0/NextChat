@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { createRoot } from "react-dom/client";
 import Locale from "../locales";
 import { IconButton } from "./button";
 import { Modal, PasswordInput } from "./ui-lib";
 import styles from "./password-modal.module.scss";
+import { createPortalLayer } from "../utils/portal";
 
 /**
  * 输入加密密码的弹窗。
@@ -19,15 +19,9 @@ export function askEncryptPassword(options: {
   showRemember?: boolean;
   rememberDefault?: boolean;
 }): Promise<{ password: string; remember: boolean } | null> {
-  const div = document.createElement("div");
-  div.className = "modal-mask";
-  document.body.appendChild(div);
-
-  const root = createRoot(div);
-  const close = () => {
-    root.unmount();
-    div.remove();
-  };
+  // 和其他弹层一样挂到固定容器里，不直接增删 document.body 的子节点
+  const layer = createPortalLayer("modal-mask");
+  const close = () => layer.destroy();
 
   return new Promise((resolve) => {
     const finish = (value: { password: string; remember: boolean } | null) => {
@@ -35,7 +29,7 @@ export function askEncryptPassword(options: {
       resolve(value);
     };
 
-    root.render(
+    layer.root.render(
       <PasswordDialog
         options={options}
         onCancel={() => finish(null)}

@@ -69,6 +69,7 @@ import { useLowMemoryStore } from "../store/low-memory";
 import { useSyncStore } from "../store/sync";
 import { uploadSessionNow } from "../utils/upload-one";
 import { attachInputDiagnostics } from "../utils/input-diag";
+import { getPortalHost } from "../utils/portal";
 
 import {
   autoGrowTextArea,
@@ -2010,7 +2011,9 @@ function _Chat() {
       // 部分浏览器支持取消事件；不支持时 Promise 会一直挂着，但没有副作用
       (input as any).oncancel = () => finish([]);
 
-      document.body.appendChild(input);
+      // 挂到固定的弹层容器里，不要直接往 document.body 增删节点
+      // （body 的子节点归 React 管，外部增删会让它后面对不上）
+      getPortalHost().appendChild(input);
       input.click();
     });
   }

@@ -36,6 +36,25 @@ function isChunkLoadError(error: Error | null) {
   );
 }
 
+/**
+ * DOM 节点被外部动过导致的崩溃：
+ *
+ *   NotFoundError: Failed to execute 'removeChild' on 'Node':
+ *   The node to be removed is not a child of this node.
+ *
+ * React 记录的 DOM 引用和真实树对不上（弹层曾经直接往 document.body 塞节点、
+ * iOS 的文本服务动过 DOM 等）。这种情况重新挂载一次页面就能恢复，
+ * 没必要把用户丢到错误页，所以也走“自动刷新一次”的路径。
+ */
+function isDomTreeError(error: Error | null) {
+  if (!error) return false;
+  const text = `${error.name} ${error.message}`;
+  return (
+    /NotFoundError/i.test(text) &&
+    /(removeChild|insertBefore|replaceChild)/i.test(text)
+  );
+}
+
 export class ErrorBoundary extends React.Component<any, IErrorBoundaryState> {
   constructor(props: any) {
     super(props);
@@ -50,6 +69,21 @@ export class ErrorBoundary extends React.Component<any, IErrorBoundaryState> {
       // 先切到“正在刷新”的状态，避免 React 继续重试崩溃的子树
       this.setState({ hasError: true, error, info, reloading: true });
       clearServiceWorkerCache();
+      return;
+    }
+
+    // DOM 树错位（removeChild / insertBefore）：重新加载一次即可恢复
+    if (isDomTreeError(error) && this.shouldReloadForChunkError()) {
+      this.markReloaded();
+      this.setState({ hasError: true, error, info, reloading: true });
+      console.warn("[Error] DOM tree mismatch, reloading once", error);
+      setTimeout(() => {
+        try {
+          window.location.reload();
+        } catch (e) {
+          console.error("[Error] reload failed", e);
+        }
+      }, 50);
       return;
     }
 

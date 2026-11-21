@@ -12,7 +12,6 @@ import MinIcon from "../icons/min.svg";
 
 import Locale from "../locales";
 
-import { createRoot } from "react-dom/client";
 import React, {
   CSSProperties,
   HTMLProps,
@@ -25,6 +24,7 @@ import React, {
 import { IconButton } from "./button";
 import { Avatar } from "./emoji";
 import clsx from "clsx";
+import { createPortalLayer } from "../utils/portal";
 
 export function Popover(props: {
   children: JSX.Element;
@@ -179,15 +179,13 @@ export function Modal(props: ModalProps) {
 }
 
 export function showModal(props: ModalProps) {
-  const div = document.createElement("div");
-  div.className = "modal-mask";
-  document.body.appendChild(div);
-
-  const root = createRoot(div);
+  // 挂在固定的弹层容器里，别往 document.body 直接增删节点
+  // （会破坏 React 记录的 DOM 引用，导致 removeChild NotFoundError）
+  const layer = createPortalLayer("modal-mask");
+  const { container: div, root } = layer;
   const closeModal = () => {
     props.onClose?.();
-    root.unmount();
-    div.remove();
+    layer.destroy();
   };
 
   div.onclick = (e) => {
@@ -234,17 +232,13 @@ export function showToast(
   action?: ToastProps["action"],
   delay = 3000,
 ) {
-  const div = document.createElement("div");
-  div.className = styles.show;
-  document.body.appendChild(div);
-
-  const root = createRoot(div);
+  const layer = createPortalLayer(styles.show);
+  const { container: div, root } = layer;
   const close = () => {
     div.classList.add(styles.hide);
 
     setTimeout(() => {
-      root.unmount();
-      div.remove();
+      layer.destroy();
     }, 300);
   };
 
@@ -322,18 +316,13 @@ export function Select(
 }
 
 export function showConfirm(content: any) {
-  const div = document.createElement("div");
-  div.className = "modal-mask";
-  document.body.appendChild(div);
-
-  const root = createRoot(div);
+  const layer = createPortalLayer("modal-mask");
   const closeModal = () => {
-    root.unmount();
-    div.remove();
+    layer.destroy();
   };
 
   return new Promise<boolean>((resolve) => {
-    root.render(
+    layer.root.render(
       <Modal
         title={Locale.UI.Confirm}
         actions={[
@@ -395,20 +384,15 @@ function PromptInput(props: {
 }
 
 export function showPrompt(content: any, value = "", rows = 3) {
-  const div = document.createElement("div");
-  div.className = "modal-mask";
-  document.body.appendChild(div);
-
-  const root = createRoot(div);
+  const layer = createPortalLayer("modal-mask");
   const closeModal = () => {
-    root.unmount();
-    div.remove();
+    layer.destroy();
   };
 
   return new Promise<string>((resolve) => {
     let userInput = value;
 
-    root.render(
+    layer.root.render(
       <Modal
         title={content}
         actions={[
