@@ -302,8 +302,8 @@ export function formatInjection(hits: SearchHit[]): string {
   if (hits.length === 0) return "";
 
   const lines: string[] = [
-    "以下是从本地知识库检索到的资料片段，可能不完整。",
-    "回答时优先依据这些资料；资料没有覆盖的部分请如实说明。",
+    /*"以下是从本地知识库检索到的资料片段，可能不完整。",
+    "回答时优先依据这些资料；资料没有覆盖的部分请如实说明。",*/
     "",
   ];
 

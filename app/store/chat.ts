@@ -32,6 +32,7 @@ import {
 import Locale, { getLang } from "../locales";
 import { prettyObject } from "../utils/format";
 import { createPersistStore } from "../utils/store";
+import { pickKnowledgeSectionIds } from "../utils/knowledge/prompt";
 import { estimateTokenLength } from "../utils/token";
 import { ModelConfig, ModelType, useAppConfig } from "./config";
 import { useAccessStore } from "./access";
@@ -102,11 +103,19 @@ export type ChatMessage = RequestMessage & {
    */
   attachments?: ChatAttachment[];
   /**
-   * 这条消息注入过哪些知识库章节（检索元信息）。
-   * 只用于界面展示「引用 N 节」；正文里已经包含注入内容。
+   * 这条消息引用了哪些知识库片段。
+   *
+   * 只记 id + 展示用的元信息：真正的资料正文在发请求时按 id 现取，
+   * 拼成一条 system 消息（不写进用户气泡，也不占存储）。
    */
   retrieval?: {
-    sections: Array<{ headingPath: string; docName: string; chars: number }>;
+    sections: Array<{
+      /** 知识库片段 id */
+      id?: string;
+      headingPath: string;
+      docName: string;
+      chars: number;
+    }>;
     tokens: number;
   };
 };
@@ -601,14 +610,19 @@ export const useChatStore = createPersistStore(
         const session = get().currentSession();
         const modelConfig = session.mask.modelConfig;
 
-        // 知识库注入：拼在用户输入前面，作为同一条消息的一部分
-        const injected = !isMcpResponse ? knowledge?.text ?? "" : "";
-        const finalContent = injected ? `${injected}${content}` : content;
+        /**
+         * 知识库资料不再拼进用户消息。
+         *
+         * 以前是把整段资料塞在 content 前面，结果勾了一堆片段时整个正文都会
+         * 渲染进聊天气泡（几十万字符），非常吓人。现在只在这条消息上留
+         * 「引用了哪几节」的 id，发请求时由 buildKnowledgePrompt 现取原文，
+         * 作为一条 system 消息发出去。
+         */
 
         // MCP Response no need to fill template
         let mContent: string | MultimodalContent[] = isMcpResponse
           ? content
-          : fillTemplateWith(finalContent, modelConfig);
+          : fillTemplateWith(content, modelConfig);
 
         const files = (attachFiles ?? []).filter(
           (file) => file.kind === "file" && file.fileId,
@@ -617,9 +631,7 @@ export const useChatStore = createPersistStore(
 
         if (!isMcpResponse && (hasImages || files.length > 0)) {
           mContent = [
-            ...(finalContent
-              ? [{ type: "text" as const, text: finalContent }]
-              : []),
+            ...(content ? [{ type: "text" as const, text: content }] : []),
             ...(attachImages ?? []).map((url) => ({
               type: "image_url" as const,
               image_url: { url },
@@ -1250,15 +1262,64 @@ export const useChatStore = createPersistStore(
           tokenCount += estimateTokenLength(getMessageTextContent(msg));
           reversedRecentMessages.push(msg);
         }
+        // 知识库资料作为 system 消息发送（不写进用户气泡，也不进会话记录）。
+        // 取「本轮要回答的那条用户消息」记下的片段 id，现场从知识库重建文本。
+        const knowledgePrompt = await get().buildKnowledgePrompt(
+          messages,
+          session,
+        );
+
         // concat all messages
         const recentMessages = [
           ...systemPrompts,
+          ...knowledgePrompt,
           ...longTermMemoryPrompts,
           ...contextPrompts,
           ...reversedRecentMessages.reverse(),
         ];
 
         return recentMessages;
+      },
+
+      /**
+       * 把「本轮知识库片段」拼成一条 system 消息。
+       *
+       * 为什么不放进 user 内容：一次勾选几十个片段时，正文会整段渲染到聊天气泡里
+       * （动辄几十万字符），既吓人又没法回看。放到 system 里发送，界面只留一个
+       * 「📚 知识库 N 节」的标记。
+       *
+       * @param messages 当前会话的消息
+       * @param session 当前会话
+       */
+      async buildKnowledgePrompt(
+        messages: ChatMessage[],
+        session: ChatSession,
+      ) {
+        if (session.knowledge?.enabled === false) return [];
+
+        // 本轮要回答的那条用户消息上记录了引用了哪几节
+        const ids = pickKnowledgeSectionIds(messages);
+        if (ids.length === 0) return [];
+
+        try {
+          // 动态 import：store/chat 与 locales 等模块存在循环依赖，
+          // 静态引用会在某些入口（测试/冷启动）触发 TDZ
+          const { useKnowledgeStore } = await import("./knowledge");
+          const result = await useKnowledgeStore
+            .getState()
+            .retrievePinned(ids, { budgetTokens: 40000 });
+          if (result.hits.length === 0) return [];
+
+          return [
+            createMessage({
+              role: "system",
+              content: `${Locale.Chat.Knowledge.SystemHeader}\n\n${result.text}`,
+            }),
+          ];
+        } catch (e) {
+          console.warn("[Knowledge] build system prompt failed", e);
+          return [];
+        }
       },
 
       updateMessage(

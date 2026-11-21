@@ -1513,6 +1513,8 @@ function _Chat() {
           knowledge = {
             text: result.text,
             sections: result.hits.map((hit) => ({
+              // 只记 id：正文在发请求时按 id 现取，拼成 system 消息
+              id: hit.chunk.id,
               headingPath: hit.chunk.headingPath || hit.chunk.heading,
               docName: hit.chunk.docName,
               chars: hit.chunk.chars,
