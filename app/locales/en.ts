@@ -93,6 +93,15 @@ const en: LocaleType = {
       PinnedMode: "Manually selected sections",
       PinnedMissing: (count: number) =>
         `${count} selected section(s) are no longer in the knowledge base (document removed or re-imported); they will be skipped`,
+      BadgePartial: (injected: number, requested: number, tokens: number) =>
+        `📚 knowledge ${injected}/${requested} section(s) · ${tokens} tokens (system)`,
+      BadgePartialHint:
+        "The remaining sections were skipped because they exceed the injection budget",
+      PickTokens: (tokens: number) => `~${tokens} tokens`,
+      PreviewDropped: (requested: number, injected: number) =>
+        `${
+          requested - injected
+        } of the ${requested} selected section(s) exceed the budget and were not injected`,
       Badge: (sections: number, tokens: number) =>
         `📚 ${sections} section(s) · ${tokens} tokens`,
       Truncated: "Section too long, truncated at a code-fence boundary",

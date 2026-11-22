@@ -57,6 +57,16 @@ export function KnowledgeSectionPicker(props: PickerProps) {
 
   const shown = filtered.slice(0, visible);
 
+  /** 已选片段的 token 估算：选多了心里有数 */
+  const selectedTokens = useMemo(() => {
+    if (selected.size === 0) return 0;
+    return sections.reduce(
+      (sum, section) =>
+        selected.has(section.id) ? sum + section.estTokens : sum,
+      0,
+    );
+  }, [sections, selected]);
+
   const toggle = (id: string, checked: boolean) => {
     setSelected((current) => {
       const next = new Set(current);
@@ -128,6 +138,9 @@ export function KnowledgeSectionPicker(props: PickerProps) {
                 selected.size,
                 sections.length,
               )}
+              {selectedTokens > 0
+                ? ` · ${Locale.Chat.Knowledge.PickTokens(selectedTokens)}`
+                : ""}
             </span>
             <button
               type="button"

@@ -79,6 +79,14 @@ export function KnowledgePreviewDialog(props: {
                 </span>
               ) : null}
             </div>
+            {debug?.dropped ? (
+              <div className="knowledge-preview-warn">
+                {Locale.Chat.Knowledge.PreviewDropped(
+                  debug.requested ?? 0,
+                  debug.injected ?? 0,
+                )}
+              </div>
+            ) : null}
             {debug?.missingPinned ? (
               <div className="knowledge-preview-warn">
                 {Locale.Chat.Knowledge.PinnedMissing(debug.missingPinned)}

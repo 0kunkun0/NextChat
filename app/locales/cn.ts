@@ -89,6 +89,14 @@ const cn = {
       PinnedMode: "手动选择的片段",
       PinnedMissing: (count: number) =>
         `${count} 个已选片段在知识库里找不到了（文档可能被删除或重新导入），发送时会跳过`,
+      BadgePartial: (injected: number, requested: number, tokens: number) =>
+        `📚 知识库 注入 ${injected}/${requested} 节 · ${tokens} token（system）`,
+      BadgePartialHint: "其余片段因为超出注入预算没有发送",
+      PickTokens: (tokens: number) => `约 ${tokens} token`,
+      PreviewDropped: (requested: number, injected: number) =>
+        `选中的 ${requested} 节里有 ${
+          requested - injected
+        } 节超出预算，本次没有注入`,
       Badge: (sections: number, tokens: number) =>
         `📚 知识库 ${sections} 节 · ${tokens} token`,
       Truncated: "本节过长，已按代码块边界截断",

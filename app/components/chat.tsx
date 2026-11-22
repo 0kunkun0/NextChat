@@ -68,6 +68,7 @@ import {
 import { useLowMemoryStore } from "../store/low-memory";
 import { useSyncStore } from "../store/sync";
 import { useKnowledgeStore } from "../store/knowledge";
+import { PINNED_BUDGET_TOKENS } from "../utils/knowledge/retrieval";
 import { showKnowledgePreview } from "./knowledge-preview";
 import { showKnowledgeSectionPicker } from "./knowledge-picker";
 import { KnowledgeBadge } from "./knowledge-badge";
@@ -1490,8 +1491,9 @@ function _Chat() {
         const result =
           pinned.length > 0
             ? // 手动勾选了片段：只注入这些，不再做检索
+              // 预算比自动检索大得多：用户点名的片段不该被悄悄砍掉
               await useKnowledgeStore.getState().retrievePinned(pinned, {
-                budgetTokens: 40000,
+                budgetTokens: PINNED_BUDGET_TOKENS,
               })
             : await useKnowledgeStore.getState().retrieve(userInput, {
                 budgetTokens: 40000,

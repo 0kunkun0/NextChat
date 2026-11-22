@@ -11,6 +11,7 @@ import {
 import {
   buildIndex,
   formatInjection,
+  PINNED_BUDGET_TOKENS,
   pinnedHits,
   search,
   type KnowledgeChunk,
@@ -74,6 +75,12 @@ export type KnowledgeDebug = {
   mode?: "pinned" | "search";
   /** 手动勾选的片段里有几个已经不在库里（文档被删/换过） */
   missingPinned?: number;
+  /** 手动勾选时：一共选了多少节 */
+  requested?: number;
+  /** 手动勾选时：实际注入了多少节（受预算限制） */
+  injected?: number;
+  /** 手动勾选时：因为预算不够被丢掉的节数 */
+  dropped?: number;
 };
 
 export type KnowledgeResult = {
@@ -233,6 +240,7 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
   },
 
   async retrievePinned(sectionIds, options = {}) {
+    const budget = options.budgetTokens ?? PINNED_BUDGET_TOKENS;
     const tokens: string[] = [];
     const empty = (reason: KnowledgeDebug["reason"]): KnowledgeResult => ({
       hits: [],
@@ -265,7 +273,13 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
     const missingPinned = sectionIds.length - picked.length;
 
     const chunksInOrder = picked.slice();
-    const hits = pinnedHits(chunksInOrder, options);
+    const hits = pinnedHits(chunksInOrder, {
+      ...options,
+      budgetTokens: budget,
+    });
+
+    // 预算还是不够时，把「选了多少 / 实际注入多少」都报出去
+    const dropped = picked.length - hits.length;
 
     return {
       hits,
@@ -279,6 +293,9 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
         reason: hits.length === 0 ? "no-match" : undefined,
         mode: "pinned",
         missingPinned,
+        requested: sectionIds.length,
+        injected: hits.length,
+        dropped,
       },
     };
   },

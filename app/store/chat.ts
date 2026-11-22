@@ -33,6 +33,7 @@ import Locale, { getLang } from "../locales";
 import { prettyObject } from "../utils/format";
 import { createPersistStore } from "../utils/store";
 import { lastUserId, resolveKnowledgeTarget } from "../utils/knowledge/prompt";
+import { PINNED_BUDGET_TOKENS } from "../utils/knowledge/retrieval";
 import { estimateTokenLength } from "../utils/token";
 import { ModelConfig, ModelType, useAppConfig } from "./config";
 import { useAccessStore } from "./access";
@@ -1321,7 +1322,8 @@ export const useChatStore = createPersistStore(
                   minChars: 200,
                 })
               : await store.retrievePinned(target.ids, {
-                  budgetTokens: 40000,
+                  // 手动勾选的片段用更大的预算（和发送时一致）
+                  budgetTokens: PINNED_BUDGET_TOKENS,
                 });
 
           if (result.hits.length === 0) return [];

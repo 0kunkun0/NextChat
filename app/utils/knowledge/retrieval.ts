@@ -60,6 +60,15 @@ const DEFAULT_OPTIONS: Required<SearchOptions> = {
   maxSectionTokens: 40000,
 };
 
+/**
+ * 手动勾选片段时的注入预算（token）。
+ *
+ * 用户点名要的片段不该被默认的 40k 预算悄悄砍掉——勾了 96 节、
+ * 结果只注入 50 节是很难理解的行为。这里给一个明显更大的上限，
+ * 真的超了也会在界面上标出「注入 50/96 节」。
+ */
+export const PINNED_BUDGET_TOKENS = 150_000;
+
 const K1 = 1.2;
 const B = 0.75;
 

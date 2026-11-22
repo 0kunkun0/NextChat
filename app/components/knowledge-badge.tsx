@@ -32,23 +32,29 @@ export function KnowledgeBadge(props: {
     if (!index) void refresh();
   }, [index, refresh]);
 
+  /**
+   * 勾选了片段就以勾选为准（这是「用户点名要注入的」），
+   * 否则用消息上记录的自动检索结果。
+   */
+  const requestedIds =
+    props.pinnedIds && props.pinnedIds.length > 0
+      ? props.pinnedIds
+      : props.sections.map((section) => section.id ?? "");
+  const requested = requestedIds.length;
+
   const live = useMemo(() => {
     if (!index) return null;
     const byId = new Map(index.chunks.map((chunk) => [chunk.id, chunk]));
-    return props.sections
-      .map((section) => (section.id ? byId.get(section.id) : undefined))
+    return requestedIds
+      .map((id) => (id ? byId.get(id) : undefined))
       .filter((chunk): chunk is NonNullable<typeof chunk> => !!chunk);
-  }, [index, props.sections]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, props.sections, props.pinnedIds]);
 
   // 索引已加载但一个都找不到：说明引用的文档都被删了
   if (live && live.length === 0) return null;
 
-  const usingPinned = !!props.pinnedIds && props.pinnedIds.length > 0;
-  const count = live
-    ? live.length
-    : usingPinned
-    ? props.pinnedIds!.length
-    : props.sections.length;
+  const count = live ? live.length : requested;
   const tokens = live
     ? live.reduce((sum, chunk) => sum + chunk.estTokens, 0)
     : props.tokens;
@@ -56,9 +62,21 @@ export function KnowledgeBadge(props: {
     ? live.map((chunk) => chunk.headingPath || chunk.heading)
     : props.sections.map((section) => section.headingPath);
 
+  // 勾选了却只注入一部分（预算不够）：把比例标出来
+  const partial = requested > 0 && count < requested;
+
   return (
-    <div className="knowledge-badge" title={titles.join("\n")}>
-      {Locale.Chat.Knowledge.Badge(count, tokens)}
+    <div
+      className="knowledge-badge"
+      title={
+        partial && props.pinnedIds
+          ? `${titles.join("\n")}\n\n${Locale.Chat.Knowledge.BadgePartialHint}`
+          : titles.join("\n")
+      }
+    >
+      {partial
+        ? Locale.Chat.Knowledge.BadgePartial(count, requested, tokens)
+        : Locale.Chat.Knowledge.Badge(count, tokens)}
     </div>
   );
 }
