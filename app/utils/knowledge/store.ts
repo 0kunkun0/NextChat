@@ -75,7 +75,16 @@ export async function importDoc(
   options: { level?: number; minChars?: number; maxChars?: number } = {},
 ): Promise<{ doc: DocMeta; stats: ChunkStats }> {
   const hash = hashText(content);
-  const id = makeDocId(name, hash);
+  /**
+   * 同名文档重新导入时沿用原来的 docId。
+   *
+   * 以前 id 里带内容哈希，重新导入一次（哪怕只改一个字）就会得到全新的 docId，
+   * 于是所有片段 id 都变了：会话里勾选的片段、历史消息上的引用集体失效
+   * （界面上表现为「选了 96 节却只注入 81 节」）。
+   * 现在按文件名复用 id，重新导入只是替换内容。
+   */
+  const existing = (await listDocs()).find((doc) => doc.name === name);
+  const id = existing?.id ?? makeDocId(name, hash);
 
   const { sections, stats } = chunkMarkdown(content, options);
   const chunks: KnowledgeChunk[] = sections.map((section, index) => ({

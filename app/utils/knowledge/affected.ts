@@ -155,6 +155,26 @@ export function stripDocReferences(
   return result;
 }
 
+/**
+ * 从勾选里剔除已经失效的片段 id（文档被删 / 重新导入后 id 变了）。
+ *
+ * @param ids 当前勾选的 id
+ * @param validIds 知识库里现存的 id
+ */
+export function filterValidSectionIds(
+  ids: string[],
+  validIds: Iterable<string>,
+): { kept: string[]; removed: string[] } {
+  const valid = new Set(validIds);
+  const kept: string[] = [];
+  const removed: string[] = [];
+  for (const id of ids) {
+    if (valid.has(id)) kept.push(id);
+    else removed.push(id);
+  }
+  return { kept, removed };
+}
+
 /** 受影响的会话标题，用于删除前的提示（最多列几个） */
 export function formatAffectedTopics(
   affected: Array<{ session: SessionLike }>,

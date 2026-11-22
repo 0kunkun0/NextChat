@@ -98,6 +98,9 @@ const en: LocaleType = {
       BadgePartialHint:
         "The remaining sections were skipped because they exceed the injection budget",
       PickTokens: (tokens: number) => `~${tokens} tokens`,
+      PickStale: (count: number) => `${count} no longer exist`,
+      PinnedPruned: (count: number) =>
+        `Removed ${count} stale knowledge section(s) (document deleted or re-imported)`,
       PreviewDropped: (requested: number, injected: number) =>
         `${
           requested - injected

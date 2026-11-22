@@ -57,6 +57,17 @@ export function KnowledgeSectionPicker(props: PickerProps) {
 
   const shown = filtered.slice(0, visible);
 
+  /** 勾选里有多少条在当前知识库里已经找不到（文档被删/重新导入） */
+  const staleSelected = useMemo(() => {
+    if (selected.size === 0) return 0;
+    const ids = new Set(sections.map((section) => section.id));
+    let count = 0;
+    for (const id of selected) {
+      if (!ids.has(id)) count += 1;
+    }
+    return count;
+  }, [selected, sections]);
+
   /** 已选片段的 token 估算：选多了心里有数 */
   const selectedTokens = useMemo(() => {
     if (selected.size === 0) return 0;
@@ -140,6 +151,9 @@ export function KnowledgeSectionPicker(props: PickerProps) {
               )}
               {selectedTokens > 0
                 ? ` · ${Locale.Chat.Knowledge.PickTokens(selectedTokens)}`
+                : ""}
+              {staleSelected > 0
+                ? ` · ${Locale.Chat.Knowledge.PickStale(staleSelected)}`
                 : ""}
             </span>
             <button

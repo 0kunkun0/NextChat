@@ -69,6 +69,7 @@ import { useLowMemoryStore } from "../store/low-memory";
 import { useSyncStore } from "../store/sync";
 import { useKnowledgeStore } from "../store/knowledge";
 import { PINNED_BUDGET_TOKENS } from "../utils/knowledge/retrieval";
+import { filterValidSectionIds } from "../utils/knowledge/affected";
 import { showKnowledgePreview } from "./knowledge-preview";
 import { showKnowledgeSectionPicker } from "./knowledge-picker";
 import { KnowledgeBadge } from "./knowledge-badge";
@@ -1500,6 +1501,21 @@ function _Chat() {
                 candidates: 8,
                 minChars: 200,
               });
+
+        // 勾选里有失效 id（文档被删/换过）时，顺手清掉并告诉用户
+        if (result.debug?.mode === "pinned" && result.debug.missingPinned) {
+          const sections = await useKnowledgeStore.getState().listSections();
+          const { kept, removed } = filterValidSectionIds(
+            pinned,
+            sections.map((section) => section.id),
+          );
+          if (removed.length > 0) {
+            chatStore.updateTargetSession(session, (current) => {
+              current.knowledge = { ...current.knowledge, sectionIds: kept };
+            });
+            showToast(Locale.Chat.Knowledge.PinnedPruned(removed.length));
+          }
+        }
 
         if (session.knowledge?.debugPreview) {
           // 预览要等用户点确定；取消就什么都不做

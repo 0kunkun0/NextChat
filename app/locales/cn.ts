@@ -93,6 +93,9 @@ const cn = {
         `📚 知识库 注入 ${injected}/${requested} 节 · ${tokens} token（system）`,
       BadgePartialHint: "其余片段因为超出注入预算没有发送",
       PickTokens: (tokens: number) => `约 ${tokens} token`,
+      PickStale: (count: number) => `其中 ${count} 节已失效`,
+      PinnedPruned: (count: number) =>
+        `已清掉 ${count} 个失效的知识库片段（文档可能被删除或重新导入过）`,
       PreviewDropped: (requested: number, injected: number) =>
         `选中的 ${requested} 节里有 ${
           requested - injected
