@@ -109,7 +109,7 @@ import {
   canLoadEarlier,
   clampRenderIndex,
   getChatScrollState,
-  getStreamingScrollTarget,
+  getStreamingPinTarget,
   isScrollContentShort,
   prevPageIndex,
 } from "@/app/utils/chat-scroll";
@@ -637,39 +637,47 @@ function useScrollToBottom(
   const [autoScroll, setAutoScroll] = useState(true);
 
   /**
-   * 本次流式输出是否已经“停在气泡顶部”。
-   * 一旦钉住就不再自动滚动，直到用户主动要求回到底部（点按钮 / 发新消息 /
-   * 重新生成）——否则生成结束那一刻会突然跳到底部，把正在看的位置弄丢。
+   * 本次流式输出是否已经钉过顶部（用于「生成结束后不要跳到底部」）。
    */
   const pinnedRef = useRef(false);
+  /** 用户在流式期间主动点了「回到底部」：不再把他拽回气泡顶部 */
+  const manualBottomRef = useRef(false);
 
   const scrollDomToBottom = useCallback(() => {
     const dom = scrollRef.current;
     if (dom) {
       requestAnimationFrame(() => {
-        pinnedRef.current = false;
         setAutoScroll(true);
         dom.scrollTo(0, dom.scrollHeight);
       });
     }
   }, [scrollRef]);
 
+  /** 用户主动回到底部（按钮）：流式期间也不要再自动钉顶部 */
+  const scrollToBottomManual = useCallback(() => {
+    manualBottomRef.current = true;
+    scrollDomToBottom();
+  }, [scrollDomToBottom]);
+
   /**
-   * 流式输出时跟随新内容，但**最多只把“正在生成的那条消息”的顶部滚到画面顶部**。
+   * 流式输出：把「正在生成的那条气泡」顶部顶到容器顶部。
    *
-   * 超过一屏之后就停住（pinnedRef），既不会被新内容一直往下带，
-   * 生成结束也不会突然跳到底部。
+   * 以前是「没超过一屏就跟着底部走，超过了才停」——PC 屏幕高，回复要涨到
+   * 超过一屏才钉住，在那之前看起来就是“一直在往下滚”；手机一屏矮，
+   * 很快就超过一屏，所以永远像钉住。现在两端统一：一开始就钉住。
+   *
+   * 每次渲染都调用一次：气泡还没顶到顶时继续往下顶，顶到了就不再做任何事
+   * （只往下滚，不会把用户往回拽）。
    */
-  const scrollToStreamingMessage = useCallback(() => {
+  const pinStreamingMessageTop = useCallback(() => {
     const dom = scrollRef.current;
     if (!dom) return;
 
     requestAnimationFrame(() => {
-      if (pinnedRef.current) return;
-
       const el = dom.querySelector<HTMLElement>('[data-streaming="1"]');
 
       if (!el) {
+        // 气泡还没渲染出来（请求刚发出）：先贴底，让新气泡可见
         dom.scrollTop = dom.scrollHeight - dom.clientHeight;
         return;
       }
@@ -678,42 +686,31 @@ function useScrollToBottom(
       const elRect = el.getBoundingClientRect();
       // 消息顶部在滚动内容里的位置
       const messageTop = elRect.top - domRect.top + dom.scrollTop;
-      const { target, atCap } = getStreamingScrollTarget({
+      const { target, shouldScroll } = getStreamingPinTarget({
+        scrollTop: dom.scrollTop,
         clientHeight: dom.clientHeight,
         scrollHeight: dom.scrollHeight,
         messageTop,
       });
 
-      if (atCap) {
-        // 气泡已经超过一屏：最多滚到“顶部贴住画面顶部”，然后停住。
-        // 只往下滚（target 比当前更靠下才动），不会把用户往回拽
-        if (target > dom.scrollTop + 1) {
-          dom.scrollTop = target;
-        }
-        pinnedRef.current = true;
-        return;
-      }
-
-      // 还没到一屏：正常跟着底部走
-      if (target > dom.scrollTop + 1) {
-        dom.scrollTop = target;
-      }
+      if (shouldScroll) dom.scrollTop = target;
     });
   }, [scrollRef]);
 
   // auto scroll
   useEffect(() => {
-    // 正在流式输出时只要用户没主动往上翻（autoScroll 为 true）就跟随，
-    // 但只在气泡还没超过一屏时贴到底（见 scrollToStreamingMessage）
     const streaming = messages.some((m) => m.streaming);
     if (!autoScroll) return;
 
     if (streaming) {
-      scrollToStreamingMessage();
+      if (manualBottomRef.current) return;
+      pinnedRef.current = true;
+      pinStreamingMessageTop();
       return;
     }
 
-    // 停在气泡顶部的情况：生成结束后保持原位置，不要跳到底部
+    manualBottomRef.current = false;
+    // 停在气泡顶部：生成结束后保持原位置，不要跳到底部
     if (!detach && !pinnedRef.current) {
       scrollDomToBottom();
     }
@@ -723,6 +720,8 @@ function useScrollToBottom(
   const lastMessagesLength = useRef(messages.length);
   useEffect(() => {
     if (messages.length > lastMessagesLength.current && !detach) {
+      pinnedRef.current = false;
+      manualBottomRef.current = false;
       scrollDomToBottom();
     }
     lastMessagesLength.current = messages.length;
@@ -733,6 +732,7 @@ function useScrollToBottom(
     autoScroll,
     setAutoScroll,
     scrollDomToBottom,
+    scrollToBottomManual,
   };
 }
 
@@ -1371,11 +1371,12 @@ function _Chat() {
 
   // if user is typing, should auto scroll to bottom
   // if user is not typing, should auto scroll to bottom only if already at bottom
-  const { setAutoScroll, scrollDomToBottom } = useScrollToBottom(
-    scrollRef,
-    (isScrolledToBottom || isAttachWithTop) && !isTyping,
-    session.messages,
-  );
+  const { setAutoScroll, scrollDomToBottom, scrollToBottomManual } =
+    useScrollToBottom(
+      scrollRef,
+      (isScrolledToBottom || isAttachWithTop) && !isTyping,
+      session.messages,
+    );
   // 老版本 iOS 上阻止列表滚到边缘后整页回弹
   usePreventOverscroll(scrollRef);
   const [hitBottom, setHitBottom] = useState(true);
@@ -2086,6 +2087,11 @@ function _Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [msgRenderIndex, chatPageSize]);
 
+  /** 流式进行中（用于区分“跟随底部”和“钉住气泡顶部”两种滚动策略） */
+  const isStreamingNow = session.messages.some((m) => m.streaming);
+  /** 上一次滚动位置：判断用户是不是在往上翻 */
+  const lastScrollTopRef = useRef(0);
+
   const onChatBodyScroll = (e: HTMLElement) => {
     const prevPageMsgIndex = prevPageIndex(msgRenderIndex, chatPageSize);
     const nextPageMsgIndex = msgRenderIndex + chatPageSize;
@@ -2117,12 +2123,26 @@ function _Chat() {
     }
 
     setHitBottom(isHitBottom);
-    setAutoScroll(isHitBottom);
+
+    /**
+     * 流式期间：我们自己把气泡顶到顶部的滚动会让「不在底部」，
+     * 不能因为这样就关掉自动跟随（否则气泡会慢慢飘走，就是 PC 上
+     * “有时跟着滚、有时不跟”的来源）。只有用户**主动往上翻**才停。
+     */
+    if (isStreamingNow) {
+      if (e.scrollTop < lastScrollTopRef.current - 2) {
+        setAutoScroll(false);
+      }
+    } else {
+      setAutoScroll(isHitBottom);
+    }
+    lastScrollTopRef.current = e.scrollTop;
   };
 
   function scrollToBottom() {
     setMsgRenderIndex(renderMessages.length - chatPageSize);
-    scrollDomToBottom();
+    // 用户主动回到底部：流式期间也不要再把他拽回气泡顶部
+    scrollToBottomManual();
   }
 
   // clear context index = context length + index in messages

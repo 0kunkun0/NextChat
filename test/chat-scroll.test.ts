@@ -3,7 +3,7 @@ import {
   canLoadEarlier,
   clampRenderIndex,
   getChatScrollState,
-  getStreamingScrollTarget,
+  getStreamingPinTarget,
   isScrollContentShort,
   prevPageIndex,
 } from "../app/utils/chat-scroll";
@@ -68,33 +68,33 @@ describe("getChatScrollState", () => {
   });
 });
 
-describe("getStreamingScrollTarget", () => {
-  test("follows the bottom while the reply is shorter than one screen", () => {
-    // 内容 1000，视口 800 → 底部是 200；气泡顶部在 600（还没到顶）
-    const result = getStreamingScrollTarget({
+describe("getStreamingPinTarget", () => {
+  test("把气泡顶部钉到容器顶部（留一点间隙）", () => {
+    const result = getStreamingPinTarget({
+      scrollTop: 0,
+      clientHeight: 800,
+      scrollHeight: 5000,
+      messageTop: 1200,
+    });
+    expect(result.target).toBe(1200 - 12);
+    expect(result.shouldScroll).toBe(true);
+  });
+
+  test("可滚动范围不够时停在最大滚动位置（内容还会继续长，下一帧再顶）", () => {
+    // 内容才 1000、视口 800：最多只能滚 200，虽然气泡顶部在 600
+    const result = getStreamingPinTarget({
+      scrollTop: 0,
       clientHeight: 800,
       scrollHeight: 1000,
       messageTop: 600,
     });
-
     expect(result.target).toBe(200);
-    expect(result.atCap).toBe(false);
+    expect(result.shouldScroll).toBe(true);
   });
 
-  test("stops at the bubble top once the reply is taller than one screen", () => {
-    // 内容 3000，视口 800 → 底部 2200；气泡顶部在 900
-    const result = getStreamingScrollTarget({
-      clientHeight: 800,
-      scrollHeight: 3000,
-      messageTop: 900,
-    });
-
-    expect(result.target).toBe(900);
-    expect(result.atCap).toBe(true);
-  });
-
-  test("never scrolls past the bottom", () => {
-    const result = getStreamingScrollTarget({
+  test("不会越过可滚动范围", () => {
+    const result = getStreamingPinTarget({
+      scrollTop: 0,
       clientHeight: 800,
       scrollHeight: 900,
       messageTop: 5000,
@@ -102,27 +102,48 @@ describe("getStreamingScrollTarget", () => {
     expect(result.target).toBe(100);
   });
 
-  test("handles a message that starts at the very top", () => {
-    const result = getStreamingScrollTarget({
+  test("已经在目标位置时不再滚动", () => {
+    const result = getStreamingPinTarget({
+      scrollTop: 588,
       clientHeight: 800,
-      scrollHeight: 2000,
-      messageTop: 0,
+      scrollHeight: 5000,
+      messageTop: 600,
     });
-    expect(result.target).toBe(0);
-    expect(result.atCap).toBe(true);
+    expect(result.shouldScroll).toBe(false);
   });
 
-  test("handles content shorter than the viewport", () => {
-    const result = getStreamingScrollTarget({
+  test("目标在当前上方时不回滚（不把用户往回拽）", () => {
+    const result = getStreamingPinTarget({
+      scrollTop: 2000,
+      clientHeight: 800,
+      scrollHeight: 5000,
+      messageTop: 600,
+    });
+    expect(result.target).toBe(588);
+    expect(result.shouldScroll).toBe(false);
+  });
+
+  test("气泡从最顶部开始时目标是 0", () => {
+    const result = getStreamingPinTarget({
+      scrollTop: 0,
+      clientHeight: 800,
+      scrollHeight: 3000,
+      messageTop: 5,
+    });
+    expect(result.target).toBe(0);
+    expect(result.shouldScroll).toBe(false);
+  });
+
+  test("内容比视口还短时目标为 0", () => {
+    const result = getStreamingPinTarget({
+      scrollTop: 0,
       clientHeight: 800,
       scrollHeight: 400,
       messageTop: 300,
     });
-    expect(result.bottom).toBe(0);
     expect(result.target).toBe(0);
   });
 });
-
 describe("isScrollContentShort", () => {
   test("detects content shorter than the viewport", () => {
     expect(isScrollContentShort({ clientHeight: 800, scrollHeight: 700 })).toBe(

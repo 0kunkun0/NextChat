@@ -44,30 +44,34 @@ export function isScrollContentShort(params: {
   return params.scrollHeight <= params.clientHeight + threshold;
 }
 
+/** 气泡顶部与容器顶部的间隙，避免文字贴着屏幕边缘 */
+export const STREAMING_PIN_GAP = 12;
+
 /**
- * 流式输出时的滚动目标。
+ * 流式输出时的滚动目标：把「正在生成的那条气泡」的顶部钉在容器顶部。
  *
- * 跟着新内容往下滚，但上限是“正在生成的那条消息”顶部贴住容器顶部：
- * 回复超过一屏之后就停在原地，用户才能往上翻着看已经生成的内容，
- * 而不是每来一段就被拽回底部。
+ * 以前是「气泡没超过一屏就跟着底部走，超过了才停下」——PC 上屏幕高，
+ * 回复要涨到超过一屏才开始钉住，在那之前看起来就是"一直在往下滚"；
+ * 手机屏幕矮，很快就超过一屏，所以永远像是钉住的。
+ * 现在统一成：一开始就把气泡顶部顶到容器顶部，之后内容再长也不跟随。
+ *
+ * 只往下滚（target 比当前更靠下才动），不会把用户往回拽，
+ * 也永远不越过可滚动范围。
  */
-export function getStreamingScrollTarget(params: {
+export function getStreamingPinTarget(params: {
+  scrollTop: number;
   clientHeight: number;
   scrollHeight: number;
   /** 消息顶部在滚动内容里的偏移 */
   messageTop: number;
-}) {
-  const bottom = Math.max(0, params.scrollHeight - params.clientHeight);
-  const messageTop = Math.max(0, params.messageTop);
+  gap?: number;
+}): { target: number; shouldScroll: boolean } {
+  const gap = params.gap ?? STREAMING_PIN_GAP;
+  const maxScroll = Math.max(0, params.scrollHeight - params.clientHeight);
+  const desired = Math.max(0, params.messageTop - gap);
+  const target = Math.min(maxScroll, desired);
 
-  // 气泡还不到一屏时 messageTop 在底部之下，贴底；超过一屏后停在气泡顶部
-  const atCap = messageTop <= bottom;
-
-  return {
-    bottom,
-    atCap,
-    target: Math.min(bottom, messageTop),
-  };
+  return { target, shouldScroll: target > params.scrollTop + 1 };
 }
 /* --------------------------- 渲染窗口（分页） --------------------------- */
 
