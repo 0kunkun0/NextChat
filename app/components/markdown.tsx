@@ -4,11 +4,25 @@ import RemarkMath from "remark-math";
 import RemarkBreaks from "remark-breaks";
 import RehypeKatex from "rehype-katex";
 import RemarkGfm from "remark-gfm";
-import RehypeHighlight from "rehype-highlight";
-import { useRef, useState, RefObject, useEffect, useMemo } from "react";
+import {
+  useRef,
+  useState,
+  useReducer,
+  RefObject,
+  useEffect,
+  useMemo,
+} from "react";
 import { copyToClipboard, useWindowSize } from "../utils";
 import { getMarkdownInput, remarkFixLiteralStrong } from "../utils/markdown";
 import { useThrottleMarkdownRender } from "../utils/use-throttle-markdown";
+import {
+  canHighlight,
+  escapeHtml,
+  highlightCode,
+  isLanguageLoaded,
+  loadLanguage,
+  normalizeLanguage,
+} from "../utils/highlight-lazy";
 import mermaid from "mermaid";
 import Locale from "../locales";
 import LoadingIcon from "../icons/three-dots.svg";
@@ -89,12 +103,12 @@ export function PreCode(props: { children: any }) {
     if (!ref.current) return;
     const mermaidDom = ref.current.querySelector("code.language-mermaid");
     if (mermaidDom) {
-      setMermaidCode((mermaidDom as HTMLElement).innerText);
+      setMermaidCode((mermaidDom as HTMLElement).textContent ?? "");
     }
     const htmlDom = ref.current.querySelector("code.language-html");
-    const refText = ref.current.querySelector("code")?.innerText;
+    const refText = ref.current.querySelector("code")?.textContent;
     if (htmlDom) {
-      setHtmlCode((htmlDom as HTMLElement).innerText);
+      setHtmlCode((htmlDom as HTMLElement).textContent ?? "");
     } else if (
       refText?.startsWith("<!DOCTYPE") ||
       refText?.startsWith("<svg") ||
@@ -143,7 +157,7 @@ export function PreCode(props: { children: any }) {
           onClick={() => {
             if (ref.current) {
               copyToClipboard(
-                ref.current.querySelector("code")?.innerText ?? "",
+                ref.current.querySelector("code")?.textContent ?? "",
               );
             }
           }}
@@ -178,12 +192,60 @@ export function PreCode(props: { children: any }) {
   );
 }
 
-function CustomCode(props: { children: any; className?: string }) {
+/** 把 react-markdown 传来的 children 还原成代码原文 */
+function textOfChildren(children: any): string {
+  if (typeof children === "string") return children;
+  if (Array.isArray(children)) return children.map(textOfChildren).join("");
+  if (children && typeof children === "object" && "props" in children) {
+    return textOfChildren(children.props?.children);
+  }
+  return children == null ? "" : String(children);
+}
+
+function CustomCode(props: {
+  children: any;
+  className?: string;
+  inline?: boolean;
+}) {
   const chatStore = useChatStore();
   const session = chatStore.currentSession();
   const config = useAppConfig();
   const enableCodeFold =
     session.mask?.enableCodeFold !== false && config.enableCodeFold;
+
+  /**
+   * 代码高亮按语言动态加载：
+   * 未加载时先显示纯文本（不闪烁空白），加载完强制重渲染一次。
+   * 低占用模式直接跳过高亮，省下大量 span 和内存。
+   */
+  const lowMemory = useLowMemoryStore((state) => state.enabled);
+  const raw = textOfChildren(props.children);
+  const lang = useMemo(
+    () =>
+      normalizeLanguage(
+        /language-([^\s]+)/.exec(props.className ?? "")?.[1] ?? "",
+      ),
+    [props.className],
+  );
+  const [version, bumpVersion] = useReducer((n: number) => n + 1, 0);
+
+  useEffect(() => {
+    if (lowMemory || !canHighlight(lang) || isLanguageLoaded(lang)) return;
+    let alive = true;
+    loadLanguage(lang).then((ok) => {
+      if (alive && ok) bumpVersion();
+    });
+    return () => {
+      alive = false;
+    };
+  }, [lang, lowMemory]);
+
+  const html = useMemo(
+    () => (lowMemory ? escapeHtml(raw) : highlightCode(raw, lang)),
+    // version 变化代表语言包刚加载完，需要重新高亮
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [raw, lang, lowMemory, version],
+  );
 
   const ref = useRef<HTMLPreElement>(null);
   const [collapsed, setCollapsed] = useState(true);
@@ -195,7 +257,7 @@ function CustomCode(props: { children: any; className?: string }) {
       setShowToggle(codeHeight > 400);
       ref.current.scrollTop = ref.current.scrollHeight;
     }
-  }, [props.children]);
+  }, [raw, html]);
 
   const toggleCollapsed = () => {
     setCollapsed((collapsed) => !collapsed);
@@ -215,18 +277,23 @@ function CustomCode(props: { children: any; className?: string }) {
     }
     return null;
   };
+
+  // 行内代码不做高亮，也不折叠
+  if (props.inline) {
+    return <code className={clsx(props.className)}>{props.children}</code>;
+  }
+
   return (
     <>
       <code
-        className={clsx(props?.className)}
+        className={clsx(props?.className, "hljs")}
         ref={ref}
         style={{
           maxHeight: enableCodeFold && collapsed ? "400px" : "none",
           overflowY: "hidden",
         }}
-      >
-        {props.children}
-      </code>
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
 
       {renderShowMoreButton()}
     </>
@@ -260,20 +327,9 @@ function _MarkDownContent(props: { content: string; streaming?: boolean }) {
         // 中文里 `**（xxx）**` 这类写法 CommonMark 不认，补救成粗体
         remarkFixLiteralStrong,
       ]}
-      rehypePlugins={
-        lowMemory
-          ? [RehypeKatex]
-          : [
-              RehypeKatex,
-              [
-                RehypeHighlight,
-                {
-                  detect: false,
-                  ignoreMissing: true,
-                },
-              ],
-            ]
-      }
+      // 代码高亮改成在 CustomCode 里按语言动态加载（见 utils/highlight-lazy），
+      // 不再用 rehype-highlight：它会把 highlight.js 全部语言打进首屏包
+      rehypePlugins={[RehypeKatex]}
       components={{
         pre: PreCode,
         code: CustomCode,
