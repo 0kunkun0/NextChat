@@ -32,7 +32,7 @@ import {
 import Locale, { getLang } from "../locales";
 import { prettyObject } from "../utils/format";
 import { createPersistStore } from "../utils/store";
-import { pickKnowledgeSectionIds } from "../utils/knowledge/prompt";
+import { lastUserId, resolveKnowledgeTarget } from "../utils/knowledge/prompt";
 import { estimateTokenLength } from "../utils/token";
 import { ModelConfig, ModelType, useAppConfig } from "./config";
 import { useAccessStore } from "./access";
@@ -1288,6 +1288,10 @@ export const useChatStore = createPersistStore(
        * （动辄几十万字符），既吓人又没法回看。放到 system 里发送，界面只留一个
        * 「📚 知识库 N 节」的标记。
        *
+       * 取哪几节按 resolveKnowledgeTarget 的优先级来（见 utils/knowledge/prompt.ts）：
+       * 手动勾选 > 明确清空后按问题检索 > 消息里记录的旧 id。
+       * 这样在会话设置里改完勾选，**重新生成也会立刻用新的引用**。
+       *
        * @param messages 当前会话的消息
        * @param session 当前会话
        */
@@ -1297,18 +1301,48 @@ export const useChatStore = createPersistStore(
       ) {
         if (session.knowledge?.enabled === false) return [];
 
-        // 本轮要回答的那条用户消息上记录了引用了哪几节
-        const ids = pickKnowledgeSectionIds(messages);
-        if (ids.length === 0) return [];
+        const target = resolveKnowledgeTarget({
+          pinned: session.knowledge?.sectionIds,
+          messages,
+        });
+        if (target.mode === "none") return [];
 
         try {
           // 动态 import：store/chat 与 locales 等模块存在循环依赖，
           // 静态引用会在某些入口（测试/冷启动）触发 TDZ
           const { useKnowledgeStore } = await import("./knowledge");
-          const result = await useKnowledgeStore
-            .getState()
-            .retrievePinned(ids, { budgetTokens: 40000 });
+          const store = useKnowledgeStore.getState();
+
+          const result =
+            target.mode === "auto"
+              ? await store.retrieve(target.text, {
+                  budgetTokens: 40000,
+                  candidates: 8,
+                  minChars: 200,
+                })
+              : await store.retrievePinned(target.ids, {
+                  budgetTokens: 40000,
+                });
+
           if (result.hits.length === 0) return [];
+
+          // 把「实际注入了哪几节」写回这条用户消息：
+          // 界面上的标记、之后的重新生成都以它为准，避免显示与事实不一致
+          const userId = lastUserId(messages);
+          const sections = result.hits.map((hit) => ({
+            id: hit.chunk.id,
+            headingPath: hit.chunk.headingPath || hit.chunk.heading,
+            docName: hit.chunk.docName,
+            chars: hit.chunk.chars,
+          }));
+          if (userId) {
+            get().updateTargetSession(session, (current) => {
+              const message = current.messages.find((m) => m.id === userId);
+              if (!message) return;
+              message.retrieval = { sections, tokens: result.tokens };
+              current.messages = current.messages.concat();
+            });
+          }
 
           return [
             createMessage({

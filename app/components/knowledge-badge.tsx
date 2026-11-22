@@ -22,6 +22,8 @@ type RetrievalSection = {
 export function KnowledgeBadge(props: {
   sections: RetrievalSection[];
   tokens: number;
+  /** 会话里手动勾选的片段：有就优先显示它（改完勾选立刻生效） */
+  pinnedIds?: string[];
 }) {
   const index = useKnowledgeStore((state) => state.index);
   const refresh = useKnowledgeStore((state) => state.refresh);
@@ -41,7 +43,12 @@ export function KnowledgeBadge(props: {
   // 索引已加载但一个都找不到：说明引用的文档都被删了
   if (live && live.length === 0) return null;
 
-  const count = live ? live.length : props.sections.length;
+  const usingPinned = !!props.pinnedIds && props.pinnedIds.length > 0;
+  const count = live
+    ? live.length
+    : usingPinned
+    ? props.pinnedIds!.length
+    : props.sections.length;
   const tokens = live
     ? live.reduce((sum, chunk) => sum + chunk.estTokens, 0)
     : props.tokens;
