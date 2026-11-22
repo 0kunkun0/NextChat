@@ -636,18 +636,34 @@ function useScrollToBottom(
   // for auto-scroll
   const [autoScroll, setAutoScroll] = useState(true);
 
-  /**
-   * 本次流式输出是否已经钉过顶部（用于「生成结束后不要跳到底部」）。
-   */
-  const pinnedRef = useRef(false);
   /** 用户在流式期间主动点了「回到底部」：不再把他拽回气泡顶部 */
   const manualBottomRef = useRef(false);
+  /**
+   * 我们自己滚动到的目标位置。
+   *
+   * 程序滚动同样会触发 scroll 事件，不加区分的话，“往上翻才停止跟随”会把
+   * 自己的滚动误判成用户操作（反过来也会漏判）。
+   * 用目标位置比对而不是布尔标记：浏览器可能根本不发这次 scroll 事件
+   * （位置没变），布尔标记会一直留着，把**下一次真正的用户滚动**吞掉。
+   */
+  const programmaticTargetRef = useRef<number | null>(null);
+
+  /** 这次 scroll 事件是不是我们自己滚出来的（是就消费掉） */
+  const consumeProgrammaticScroll = useCallback((scrollTop: number) => {
+    const target = programmaticTargetRef.current;
+    if (target === null) return false;
+    if (Math.abs(scrollTop - target) > 2) return false;
+    programmaticTargetRef.current = null;
+    return true;
+  }, []);
 
   const scrollDomToBottom = useCallback(() => {
     const dom = scrollRef.current;
     if (dom) {
       requestAnimationFrame(() => {
         setAutoScroll(true);
+        const target = dom.scrollHeight - dom.clientHeight;
+        programmaticTargetRef.current = target;
         dom.scrollTo(0, dom.scrollHeight);
       });
     }
@@ -656,6 +672,19 @@ function useScrollToBottom(
   /** 用户主动回到底部（按钮）：流式期间也不要再自动钉顶部 */
   const scrollToBottomManual = useCallback(() => {
     manualBottomRef.current = true;
+    scrollDomToBottom();
+  }, [scrollDomToBottom]);
+
+  /**
+   * 新的一轮生成开始（发送 / 重新生成）：清掉“用户要求停在底部”和“已钉住”，
+   * 从干净状态重新钉到气泡顶部。
+   *
+   * 之前重新生成走的是 `scrollToBottom()`，会把 manualBottom 置位，
+   * 于是整段流式都不钉住——表现就是“偶尔还是会一路往下滚”。
+   */
+  const resetFollow = useCallback(() => {
+    manualBottomRef.current = false;
+    programmaticTargetRef.current = null;
     scrollDomToBottom();
   }, [scrollDomToBottom]);
 
@@ -678,7 +707,9 @@ function useScrollToBottom(
 
       if (!el) {
         // 气泡还没渲染出来（请求刚发出）：先贴底，让新气泡可见
-        dom.scrollTop = dom.scrollHeight - dom.clientHeight;
+        const bottom = dom.scrollHeight - dom.clientHeight;
+        programmaticTargetRef.current = bottom;
+        dom.scrollTop = bottom;
         return;
       }
 
@@ -693,39 +724,38 @@ function useScrollToBottom(
         messageTop,
       });
 
-      if (shouldScroll) dom.scrollTop = target;
+      if (shouldScroll) {
+        programmaticTargetRef.current = target;
+        dom.scrollTop = target;
+      }
     });
   }, [scrollRef]);
 
-  // auto scroll
+  /**
+   * 流式输出期间：把气泡顶部钉在容器顶部。
+   *
+   * 生成结束后什么都不做——「完成后跳到底部」正是用户最烦的那一下，
+   * 这里只保留「新消息」这一条贴底路径（由 messages.length 变化触发）。
+   */
   useEffect(() => {
     const streaming = messages.some((m) => m.streaming);
-    if (!autoScroll) return;
-
-    if (streaming) {
-      if (manualBottomRef.current) return;
-      pinnedRef.current = true;
-      pinStreamingMessageTop();
+    if (!streaming) {
+      manualBottomRef.current = false;
       return;
     }
+    if (!autoScroll || manualBottomRef.current) return;
 
-    manualBottomRef.current = false;
-    // 停在气泡顶部：生成结束后保持原位置，不要跳到底部
-    if (!detach && !pinnedRef.current) {
-      scrollDomToBottom();
-    }
+    pinStreamingMessageTop();
   });
 
   // auto scroll when messages length changes
   const lastMessagesLength = useRef(messages.length);
   useEffect(() => {
     if (messages.length > lastMessagesLength.current && !detach) {
-      pinnedRef.current = false;
-      manualBottomRef.current = false;
-      scrollDomToBottom();
+      resetFollow();
     }
     lastMessagesLength.current = messages.length;
-  }, [messages.length, detach, scrollDomToBottom]);
+  }, [messages.length, detach, resetFollow]);
 
   return {
     scrollRef,
@@ -733,6 +763,8 @@ function useScrollToBottom(
     setAutoScroll,
     scrollDomToBottom,
     scrollToBottomManual,
+    resetFollow,
+    consumeProgrammaticScroll,
   };
 }
 
@@ -1371,12 +1403,17 @@ function _Chat() {
 
   // if user is typing, should auto scroll to bottom
   // if user is not typing, should auto scroll to bottom only if already at bottom
-  const { setAutoScroll, scrollDomToBottom, scrollToBottomManual } =
-    useScrollToBottom(
-      scrollRef,
-      (isScrolledToBottom || isAttachWithTop) && !isTyping,
-      session.messages,
-    );
+  const {
+    setAutoScroll,
+    scrollDomToBottom,
+    scrollToBottomManual,
+    resetFollow,
+    consumeProgrammaticScroll,
+  } = useScrollToBottom(
+    scrollRef,
+    (isScrolledToBottom || isAttachWithTop) && !isTyping,
+    session.messages,
+  );
   // 老版本 iOS 上阻止列表滚到边缘后整页回弹
   usePreventOverscroll(scrollRef);
   const [hitBottom, setHitBottom] = useState(true);
@@ -1562,7 +1599,8 @@ function _Chat() {
     setUserInput("");
     setPromptHints([]);
     if (!isMobileScreen) inputRef.current?.focus();
-    setAutoScroll(true);
+    // 新的一轮生成：清掉“用户要求停在底部”，允许重新钉到气泡顶部
+    resetFollow();
   };
 
   const onPromptSelect = (prompt: RenderPrompt) => {
@@ -1811,9 +1849,10 @@ function _Chat() {
    * 没有回复时回退到“删除后重新发送”。
    */
   const onRetry = (message: ChatMessage) => {
-    // 重新生成时内容会先清空再流式变长，底部位置一直在变：
-    // 先把视图拉到底部，后面由流式跟随保持住
-    scrollToBottom();
+    // 重新生成 = 新的一轮：清掉「用户要求停在底部 / 已经钉住」的状态。
+    // 以前这里调 scrollToBottom()，会把 manualBottom 置位，
+    // 结果整段流式都不再钉住——表现就是“偶尔还是一路往下滚”。
+    resetFollow();
 
     const reply = findReplyMessage(message);
     if (reply) {
@@ -2093,6 +2132,12 @@ function _Chat() {
   const lastScrollTopRef = useRef(0);
 
   const onChatBodyScroll = (e: HTMLElement) => {
+    // 我们自己滚动产生的 scroll 事件：只更新记录，不当成用户操作
+    if (consumeProgrammaticScroll(e.scrollTop)) {
+      lastScrollTopRef.current = e.scrollTop;
+      return;
+    }
+
     const prevPageMsgIndex = prevPageIndex(msgRenderIndex, chatPageSize);
     const nextPageMsgIndex = msgRenderIndex + chatPageSize;
     const canLoadPrev = canLoadEarlier(msgRenderIndex);
