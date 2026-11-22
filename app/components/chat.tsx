@@ -632,9 +632,18 @@ function useScrollToBottom(
   scrollRef: RefObject<HTMLDivElement>,
   detach: boolean = false,
   messages: ChatMessage[],
+  /**
+   * 桌面端：流式输出时把「正在生成的那条消息」顶部钉在画面顶部。
+   *
+   * 移动端保持原来的“跟到底部”行为（窄屏下气泡很快就超过一屏，
+   * 钉顶反而会让人看不到刚生成的内容）。
+   */
+  pinStreamingTop: boolean = false,
 ) {
   // for auto-scroll
   const [autoScroll, setAutoScroll] = useState(true);
+  /** 已经钉在气泡顶部（渲染时要用：决定要不要垫那块占位空白） */
+  const [pinned, setPinned] = useState(false);
 
   /**
    * 本次流式输出是否已经钉过顶部（用于「生成结束后不要跳到底部」）。
@@ -694,22 +703,23 @@ function useScrollToBottom(
         messageTop,
       });
 
-      if (atCap) {
-        // 气泡已经超过一屏：最多滚到“顶部贴住画面顶部”，然后停住。
-        // 只往下滚（target 比当前更靠下才动），不会把用户往回拽
-        if (target > dom.scrollTop + 1) {
-          dom.scrollTop = target;
-        }
+      /**
+       * 桌面端：直接把气泡顶部钉在画面顶部，然后不再动。
+       *
+       * 列表末尾垫了一块一屏高的占位空白（chat-streaming-spacer），
+       * 所以即使答复还很短，messageTop 也是可以达到的滚动位置——
+       * 不会再出现“内容不够一屏所以只能跟着底部走”的抖动。
+       */
+      if (pinStreamingTop) {
+        dom.scrollTop = target;
         pinnedRef.current = true;
+        setPinned(true);
         return;
       }
 
-      // 还没到一屏：正常跟着底部走
-      if (target > dom.scrollTop + 1) {
-        dom.scrollTop = target;
-      }
+      if (shouldScroll) dom.scrollTop = target;
     });
-  }, [scrollRef]);
+  }, [scrollRef, pinStreamingTop]);
 
   // auto scroll
   useEffect(() => {
@@ -1392,7 +1402,6 @@ function _Chat() {
   // 老版本 iOS 上阻止列表滚到边缘后整页回弹
   usePreventOverscroll(scrollRef);
   const [hitBottom, setHitBottom] = useState(true);
-  const isMobileScreen = useMobileScreen();
   const navigate = useNavigate();
   const [attachImages, setAttachImages] = useState<string[]>([]);
   /** 已上传（或上传中）的文件附件；图片仍走 attachImages */
@@ -1923,6 +1932,12 @@ function _Chat() {
    * 历史里每条都挂一个会让列表很吵，而且旧消息上的数字也可能早就过期；
    * 只需要看到本轮到底注入了什么。
    */
+  /** 有没有消息正在流式输出（决定要不要垫占位空白） */
+  const isStreaming = useMemo(
+    () => session.messages.some((message) => message.streaming),
+    [session.messages],
+  );
+
   const lastKnowledgeMessageId = useMemo(() => {
     for (let i = session.messages.length - 1; i >= 0; i -= 1) {
       const message = session.messages[i];
@@ -3033,6 +3048,14 @@ function _Chat() {
                     </Fragment>
                   );
                 })}
+              {/*
+               * 桌面端流式输出时，在最后一条消息下面垫一块「一屏高」的空白。
+               * 有了它，正在生成的答复可以被滚到画面顶部并停在那里
+               * （否则内容不够一屏时，滚动位置最多只能到底部，气泡就会一直跟着往下走）。
+               */}
+              {pinStreamingTop && (isStreaming || streamPinned) && (
+                <div className={styles["chat-streaming-spacer"]} />
+              )}
             </div>
             {!hitBottom && (
               <div className={styles["chat-scroll-to-bottom"]}>
