@@ -32,8 +32,8 @@ COPY . .
 # .next/cache 里是 webpack / SWC 的编译缓存。挂成 BuildKit cache 之后，
 # 每次构建都能复用上一次的编译结果（源码小改时差距非常明显）。
 # 注意：这个挂载只影响构建阶段，不会进最终镜像。
-RUN --mount=type=cache,target=/app/.next/cache \
-    NODE_OPTIONS="--max-old-space-size=4096" yarn build
+# RUN --mount=type=cache,target=/app/.next/cache \
+#     NODE_OPTIONS="--max-old-space-size=4096" yarn build
 
 FROM base AS runner
 WORKDIR /app
