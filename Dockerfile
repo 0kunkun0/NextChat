@@ -14,8 +14,8 @@ COPY package.json yarn.lock ./
 RUN yarn config set registry 'https://registry.npmmirror.com/'
 # node_modules 仍然装进镜像，但同时缓存 yarn 的下载目录：
 # 依赖没变时这一次 RUN 直接命中缓存，连包都不重新下载
-RUN --mount=type=cache,target=/usr/local/share/.cache/yarn \
-    yarn install --frozen-lockfile
+# RUN --mount=type=cache,target=/usr/local/share/.cache/yarn \
+#     yarn install --frozen-lockfile
 
 FROM base AS builder
 
