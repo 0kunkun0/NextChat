@@ -27,6 +27,17 @@ const nextConfig = {
     return config;
   },
   output: mode,
+  /**
+   * 构建时跳过 ESLint 和 TypeScript 检查。
+   *
+   * 这两步在 next build 里各要遍历一遍整个工程，是纯 CPU 时间，
+   * 而且它们的结论和“产物能不能跑”无关：
+   *   - 类型检查：`yarn typecheck`（tsc --noEmit）
+   *   - lint：`yarn lint`
+   * 放独立命令里跑，构建（含 Railway/CI）只负责出产物。
+   */
+  eslint: { ignoreDuringBuilds: true },
+  typescript: { ignoreBuildErrors: true },
   images: {
     unoptimized: mode === "export",
   },

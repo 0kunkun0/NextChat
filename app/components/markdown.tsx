@@ -23,7 +23,6 @@ import {
   loadLanguage,
   normalizeLanguage,
 } from "../utils/highlight-lazy";
-import mermaid from "mermaid";
 import Locale from "../locales";
 import LoadingIcon from "../icons/three-dots.svg";
 import ReloadButtonIcon from "../icons/reload.svg";
@@ -42,20 +41,37 @@ import { useAppConfig } from "../store/config";
 import { useLowMemoryStore } from "../store/low-memory";
 import clsx from "clsx";
 
+/**
+ * mermaid 按需加载。
+ *
+ * 它体积很大（压缩后仍有几百 KB），而且只有消息里出现 mermaid 代码块时**
+ * 才用得上。静态 import 会让它进入首屏 chunk，构建时也要多编译/压缩一遍。
+ */
+let mermaidPromise: Promise<any> | null = null;
+function loadMermaid(): Promise<any> {
+  if (!mermaidPromise) {
+    mermaidPromise = import("mermaid").then((mod) => mod.default);
+  }
+  return mermaidPromise;
+}
+
 export function Mermaid(props: { code: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
     if (props.code && ref.current) {
-      mermaid
-        .run({
-          nodes: [ref.current],
-          suppressErrors: true,
-        })
+      const node = ref.current;
+      loadMermaid()
+        .then((mermaid) =>
+          mermaid.run({
+            nodes: [node],
+            suppressErrors: true,
+          }),
+        )
         .catch((e) => {
           setHasError(true);
-          console.error("[Mermaid] ", e.message);
+          console.error("[Mermaid] ", e?.message ?? e);
         });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

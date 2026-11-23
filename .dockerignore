@@ -95,3 +95,9 @@ Thumbs.db
 # secret key
 *.key
 *.key.pub
+
+# 测试与文档：不参与构建，改了也不该让 docker 缓存失效
+test
+docs
+deepseek-chat-import
+*.md
