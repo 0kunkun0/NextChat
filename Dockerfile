@@ -29,14 +29,12 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# 构建。带 BuildKit 缓存的版本：
-#   .next/cache 是 webpack / SWC 的编译缓存，挂成 cache 之后每次构建都能复用，
-#   源码小改时提速非常明显；这个挂载不会进最终镜像。
-#   注意 cache mount 需要显式写 id=...，否则部分构建器（Railway）会报
-#   “flag '--mount=type=cache,target=...' is missing an id argument”。
-RUN --mount=type=cache,id=nextjs-build-cache,target=/app/.next/cache NODE_OPTIONS=--max-old-space-size=4096 yarn build
-# 如果你的构建环境仍然不接受 cache mount：把上面那行删掉，取消下面这行的注释
-# RUN NODE_OPTIONS=--max-old-space-size=4096 yarn build
+# 构建。
+#   这里**故意不用** `--mount=type=cache`：Railway 的 Dockerfile 校验对 cache mount
+#   的 id 有自己的一套要求（先是必须带 id，接着又要求 id 带 cacheKey 前缀），
+#   连着两次把构建拦下来。收益（复用 .next/cache）远不值这个风险，所以用普通形式。
+#   注：依赖层仍然会被 Docker 层缓存命中，改代码时不会重装依赖。
+RUN NODE_OPTIONS=--max-old-space-size=4096 yarn build
 
 FROM base AS runner
 WORKDIR /app
