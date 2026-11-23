@@ -732,21 +732,25 @@ function useScrollToBottom(
       });
 
       /**
-       * 桌面端：直接把气泡顶部钉在画面顶部，然后不再动。
+       * 桌面端：把气泡顶部钉在画面顶部。
        *
-       * 列表末尾垫了一块一屏高的占位空白（chat-streaming-spacer），
-       * 所以即使答复还很短，messageTop 也是可以达到的滚动位置——
-       * 不会再出现“内容不够一屏所以只能跟着底部走”的抖动。
+       * 注意 *不要* 在列表末尾垫占位空白来「凑出」可滚动空间——
+       * 那会在列表最底下留出一屏空白（滚到底或生成过程中都很明显）。
+       * getStreamingPinTarget 已经把 target 夹到 maxScroll：
+       *   - 答复还不满一屏 → target = maxScroll，等于跟到底部（没有空白）；
+       *   - 答复超过一屏 → target = 气泡顶部，自然钉住。
        */
       if (pinStreamingTop) {
-        programmaticTargetRef.current = target;
         dom.scrollTop = target;
+        // 记录**实际**位置：内容不足一屏时浏览器会把 target 夹到 maxScroll，
+        // 直接记 target 会让后续的“这是不是我们滚的”判断失配
+        programmaticTargetRef.current = dom.scrollTop;
         return;
       }
 
       if (shouldScroll) {
-        programmaticTargetRef.current = target;
         dom.scrollTop = target;
+        programmaticTargetRef.current = dom.scrollTop;
       }
     });
   }, [scrollRef, pinStreamingTop]);
@@ -3101,16 +3105,6 @@ function _Chat() {
                     </Fragment>
                   );
                 })}
-              {/*
-               * 桌面端流式输出时，在最后一条消息下面垫一块「一屏高」的空白。
-               * 有了它，正在生成的答复可以被滚到画面顶部并停在那里
-               * （否则内容不够一屏时，滚动位置最多只能到底部，气泡就会一直跟着往下走）。
-               *
-               * 只在「正在生成」时垫：生成结束后还留着，列表最底下就会多出一屏空白。
-               */}
-              {pinStreamingTop && isStreaming && (
-                <div className={styles["chat-streaming-spacer"]} />
-              )}
             </div>
             {!hitBottom && (
               <div className={styles["chat-scroll-to-bottom"]}>
