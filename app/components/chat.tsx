@@ -107,6 +107,7 @@ import {
 import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
 import {
   canLoadEarlier,
+  canPinStreamingScroll,
   clampRenderIndex,
   getChatScrollState,
   getStreamingPinTarget,
@@ -705,18 +706,38 @@ function useScrollToBottom(
    * 每次渲染都调用一次：气泡还没顶到顶时继续往下顶，顶到了就不再做任何事
    * （只往下滚，不会把用户往回拽）。
    */
+  /**
+   * 当前是否还有消息在流式输出。
+   *
+   * requestAnimationFrame 是**异步**的：生成刚好在这两帧之间结束时，
+   * 回调里再去查 `[data-streaming="1"]` 就已经查不到了。以前这里会掉进
+   * “气泡还没渲染出来 → 先贴底”的分支，于是生成结束的一瞬间被拽到最底下，
+   * 也就是「什么都不做，却自己滚到最底」那个现象（时有时无，看时序）。
+   */
+  const streamingRef = useRef(false);
+  streamingRef.current = messages.some((m) => m.streaming);
+
   const pinStreamingMessageTop = useCallback(() => {
     const dom = scrollRef.current;
     if (!dom) return;
 
     requestAnimationFrame(() => {
+      /**
+       * 两个条件缺一不可：
+       *   - 这一帧执行时仍在流式输出（RAF 是异步的，生成可能已经结束）；
+       *   - DOM 里确实还能找到「生成中的气泡」。
+       *
+       * 以前第二个条件不满足时会“先贴底”，结果生成结束的一瞬间被拽到最底部
+       * （什么都不做却自己滚下去，且时有时无）。发送时的贴底由 resetFollow() 负责。
+       */
       const el = dom.querySelector<HTMLElement>('[data-streaming="1"]');
-
-      if (!el) {
-        // 气泡还没渲染出来（请求刚发出）：先贴底，让新气泡可见
-        const bottom = dom.scrollHeight - dom.clientHeight;
-        programmaticTargetRef.current = bottom;
-        dom.scrollTop = bottom;
+      if (
+        !canPinStreamingScroll({
+          streaming: streamingRef.current,
+          hasStreamingElement: !!el,
+        }) ||
+        !el
+      ) {
         return;
       }
 

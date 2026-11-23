@@ -73,6 +73,23 @@ export function getStreamingPinTarget(params: {
 
   return { target, shouldScroll: target > params.scrollTop + 1 };
 }
+/**
+ * 这一帧还要不要执行「钉住生成中的气泡」。
+ *
+ * requestAnimationFrame 是异步的：生成常常在两次渲染之间结束。
+ * 以前回调里查不到 `[data-streaming="1"]` 就会走「先贴底」的分支，
+ * 于是生成结束的一瞬间被拽到最底部（时有时无，取决于时序）。
+ *
+ * @param streaming 回调执行时是否仍在流式输出
+ * @param hasStreamingElement 当前 DOM 里是否还有生成中的气泡
+ */
+export function canPinStreamingScroll(params: {
+  streaming: boolean;
+  hasStreamingElement: boolean;
+}): boolean {
+  return params.streaming && params.hasStreamingElement;
+}
+
 /* --------------------------- 渲染窗口（分页） --------------------------- */
 
 /**
