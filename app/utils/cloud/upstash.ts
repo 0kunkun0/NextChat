@@ -1379,6 +1379,21 @@ export function createUpstashClient(
       // 取消时不写索引 → 远端索引保持旧状态，下次上传会自己补上。
       throwIfAborted();
       const encodeMs = writeStartedAt - startedAt - hashMs - indexMs;
+
+      /**
+       * stores 也要「本地 + 云端保留」合并。
+       *
+       * 以前这里直接用本地的 storeItems 覆盖索引：只要有一次上传没带某个 store
+       * （例如旧版本不认识知识库这个额外 store，或者 extraStores 传参漏了），
+       * 索引里的那条记录就被抹掉 —— 数据 key 还在云端，但下载时再也找不到，
+       * 表现就是「上传过知识库，下载后本地还是空的」。
+       */
+      const localStoreIds = new Set(storeItems.map((item) => item.id));
+      const keptRemoteStores = (remoteIndex?.stores ?? []).filter(
+        (item) => item && item.id && !localStoreIds.has(item.id),
+      );
+      const mergedStores = [...storeItems, ...keptRemoteStores];
+
       const index: RemoteIndex = {
         // 3：chunked 改为按实际写入结果记录（旧版本用字符数判断，会标错）
         v: 3,
@@ -1386,7 +1401,8 @@ export function createUpstashClient(
         chat: chatMeta,
         // 本地会话 + 云端保留的条目（上传从不删会话，见上面的 mergedSessions）
         sessions: mergedSessions,
-        stores: storeItems,
+        // 本地 store + 云端独有的 store（知识库就在这一类）
+        stores: mergedStores,
         compress,
         ...(options?.extraIndex ?? {}),
       };

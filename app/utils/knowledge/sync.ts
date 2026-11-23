@@ -1,10 +1,7 @@
-import type { KnowledgeChunk } from "./retrieval";
-import {
-  listDocs,
-  loadAllChunks,
-  replaceAllFromSync,
-  type DocMeta,
-} from "./store";
+import { listDocs, loadAllChunks, replaceAllFromSync } from "./store";
+import { normalizeKnowledgePayload, type KnowledgePayload } from "./payload";
+
+export { normalizeKnowledgePayload, type KnowledgePayload } from "./payload";
 
 /**
  * 知识库的云同步 payload。
@@ -18,13 +15,6 @@ import {
 
 /** 在同步索引里用的 key（不会和 StoreKey 冲突） */
 export const KNOWLEDGE_SYNC_KEY = "__knowledge__";
-
-export type KnowledgePayload = {
-  version: 1;
-  exportedAt: number;
-  docs: DocMeta[];
-  chunks: KnowledgeChunk[];
-};
 
 /**
  * 导出成同步用的 JSON 字符串。
@@ -45,21 +35,27 @@ export async function exportKnowledgeJson(): Promise<string> {
 
 /**
  * 用云端 payload 覆盖本地知识库。
+ * @param input JSON 字符串或已解析的对象（下载回来的就是对象）
  * @returns 导入了多少个文档 / 多少节
  */
 export async function importKnowledgeJson(
-  json: string,
+  input: unknown,
+  /** 写入实现（默认写 IndexedDB；测试时可注入） */
+  write: (data: {
+    docs: KnowledgePayload["docs"];
+    chunks: KnowledgePayload["chunks"];
+  }) => Promise<void> = replaceAllFromSync,
 ): Promise<{ docs: number; chunks: number }> {
-  const payload = JSON.parse(json) as KnowledgePayload;
-  if (!payload || payload.version !== 1 || !Array.isArray(payload.docs)) {
+  const payload = normalizeKnowledgePayload(input);
+  if (!payload) {
     console.warn("[Knowledge] unsupported sync payload, skipped");
     return { docs: 0, chunks: 0 };
   }
 
-  await replaceAllFromSync({
+  await write({
     docs: payload.docs,
-    chunks: Array.isArray(payload.chunks) ? payload.chunks : [],
+    chunks: payload.chunks,
   });
 
-  return { docs: payload.docs.length, chunks: payload.chunks?.length ?? 0 };
+  return { docs: payload.docs.length, chunks: payload.chunks.length };
 }

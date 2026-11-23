@@ -832,10 +832,17 @@ function SyncItems() {
    * 所以不能交给 setLocalAppState；这个 key 也不该参与 mergeAppState。
    */
   const applyRemoteKnowledge = async (remote: any) => {
-    const json = remote?.[KNOWLEDGE_SYNC_KEY];
-    if (typeof json !== "string") return;
+    // ⚠️ 下载回来的 store 是**已经解析好的对象**（upstash.download 里 parse 过），
+    // 早期实现只接受字符串，导致「云端有知识库、下载后本地还是空的」。
+    const payload = remote?.[KNOWLEDGE_SYNC_KEY];
+    if (!payload) {
+      // 云端索引里没有这条记录：说明这份备份上传时还没带知识库，
+      // 用当前版本重新上传一次就会有了
+      console.info("[Knowledge] no knowledge base in this backup");
+      return;
+    }
     try {
-      const { docs, chunks } = await importKnowledgeJson(json);
+      const { docs, chunks } = await importKnowledgeJson(payload);
       await useKnowledgeStore.getState().refresh();
       console.info("[Knowledge] restored from cloud", { docs, chunks });
     } catch (e) {

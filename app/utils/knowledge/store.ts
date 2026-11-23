@@ -18,7 +18,17 @@ const STORE_NAME = "knowledge";
 const DOCS_KEY = "knowledge:docs";
 const docKey = (id: string) => `knowledge:doc:${id}`;
 
-const store = createStore(DB_NAME, STORE_NAME);
+/**
+ * 懒创建 IDB store。
+ *
+ * 不在模块顶层调用 createStore：那会让任何 import 这个模块的环境
+ * （单测、SSR）在还没有 indexedDB 的时候直接抛错。
+ */
+let storeCache: ReturnType<typeof createStore> | null = null;
+function db() {
+  if (!storeCache) storeCache = createStore(DB_NAME, STORE_NAME);
+  return storeCache;
+}
 
 export type DocMeta = {
   id: string;
@@ -51,7 +61,7 @@ function makeDocId(name: string, hash: string) {
 
 /** 列出所有已导入的文档 */
 export async function listDocs(): Promise<DocMeta[]> {
-  const record = (await get<{ docs: DocMeta[] }>(DOCS_KEY, store)) ?? {
+  const record = (await get<{ docs: DocMeta[] }>(DOCS_KEY, db())) ?? {
     docs: [],
   };
   return record.docs ?? [];
@@ -62,7 +72,7 @@ export async function loadAllChunks(): Promise<KnowledgeChunk[]> {
   const docs = await listDocs();
   const all: KnowledgeChunk[] = [];
   for (const doc of docs) {
-    const record = await get<DocRecord>(docKey(doc.id), store);
+    const record = await get<DocRecord>(docKey(doc.id), db());
     if (record?.chunks) all.push(...record.chunks);
   }
   return all;
@@ -103,31 +113,31 @@ export async function importDoc(
     importedAt: Date.now(),
   };
 
-  await set(docKey(id), { doc, chunks } satisfies DocRecord, store);
+  await set(docKey(id), { doc, chunks } satisfies DocRecord, db());
 
   const docs = await listDocs();
   const next = docs.filter((item) => item.id !== id);
   next.push(doc);
   next.sort((a, b) => a.importedAt - b.importedAt);
-  await set(DOCS_KEY, { docs: next }, store);
+  await set(DOCS_KEY, { docs: next }, db());
 
   return { doc, stats };
 }
 
 /** 删除一个文档 */
 export async function removeDoc(id: string): Promise<void> {
-  await del(docKey(id), store);
+  await del(docKey(id), db());
   const docs = await listDocs();
-  await set(DOCS_KEY, { docs: docs.filter((item) => item.id !== id) }, store);
+  await set(DOCS_KEY, { docs: docs.filter((item) => item.id !== id) }, db());
 }
 
 /** 清空整个知识库 */
 export async function clearKnowledge(): Promise<void> {
   const docs = await listDocs();
   for (const doc of docs) {
-    await del(docKey(doc.id), store);
+    await del(docKey(doc.id), db());
   }
-  await set(DOCS_KEY, { docs: [] }, store);
+  await set(DOCS_KEY, { docs: [] }, db());
 }
 
 /**
@@ -151,9 +161,9 @@ export async function replaceAllFromSync(payload: {
     await set(
       docKey(doc.id),
       { doc, chunks: byDoc.get(doc.id) ?? [] } satisfies DocRecord,
-      store,
+      db(),
     );
   }
 
-  await set(DOCS_KEY, { docs: payload.docs }, store);
+  await set(DOCS_KEY, { docs: payload.docs }, db());
 }
