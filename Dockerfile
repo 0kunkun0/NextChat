@@ -12,10 +12,10 @@ WORKDIR /app
 COPY package.json yarn.lock ./
 
 RUN yarn config set registry 'https://registry.npmmirror.com/'
-# node_modules 仍然装进镜像，但同时缓存 yarn 的下载目录：
-# 依赖没变时这一次 RUN 直接命中缓存，连包都不重新下载
-# RUN --mount=type=cache,target=/usr/local/share/.cache/yarn \
-#     yarn install --frozen-lockfile
+
+# 装依赖。**这一行不能注释掉**：下一阶段要 `COPY --from=deps /app/node_modules`，
+# 少了它就会报 “failed to compute cache key: /app/node_modules: not found”。
+RUN yarn install
 
 FROM base AS builder
 
@@ -29,11 +29,12 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# .next/cache 里是 webpack / SWC 的编译缓存。挂成 BuildKit cache 之后，
-# 每次构建都能复用上一次的编译结果（源码小改时差距非常明显）。
-# 注意：这个挂载只影响构建阶段，不会进最终镜像。
-# RUN --mount=type=cache,target=/app/.next/cache \
-#     NODE_OPTIONS="--max-old-space-size=4096" yarn build
+# 构建。带 BuildKit 缓存的版本（Railway 默认支持）：
+#   .next/cache 是 webpack / SWC 的编译缓存，挂成 cache 之后每次构建都能复用，
+#   源码小改时提速非常明显；这个挂载不会进最终镜像。
+RUN --mount=type=cache,target=/app/.next/cache NODE_OPTIONS=--max-old-space-size=4096 yarn build
+# 如果你的构建环境不支持 cache mount：把上面那行删掉、取消下面这行的注释即可
+# RUN NODE_OPTIONS=--max-old-space-size=4096 yarn build
 
 FROM base AS runner
 WORKDIR /app
