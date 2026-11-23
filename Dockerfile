@@ -29,11 +29,13 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# 构建。带 BuildKit 缓存的版本（Railway 默认支持）：
+# 构建。带 BuildKit 缓存的版本：
 #   .next/cache 是 webpack / SWC 的编译缓存，挂成 cache 之后每次构建都能复用，
 #   源码小改时提速非常明显；这个挂载不会进最终镜像。
-RUN --mount=type=cache,target=/app/.next/cache NODE_OPTIONS=--max-old-space-size=4096 yarn build
-# 如果你的构建环境不支持 cache mount：把上面那行删掉、取消下面这行的注释即可
+#   注意 cache mount 需要显式写 id=...，否则部分构建器（Railway）会报
+#   “flag '--mount=type=cache,target=...' is missing an id argument”。
+RUN --mount=type=cache,id=nextjs-build-cache,target=/app/.next/cache NODE_OPTIONS=--max-old-space-size=4096 yarn build
+# 如果你的构建环境仍然不接受 cache mount：把上面那行删掉，取消下面这行的注释
 # RUN NODE_OPTIONS=--max-old-space-size=4096 yarn build
 
 FROM base AS runner
