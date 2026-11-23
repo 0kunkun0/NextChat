@@ -642,8 +642,6 @@ function useScrollToBottom(
 ) {
   // for auto-scroll
   const [autoScroll, setAutoScroll] = useState(true);
-  /** 已经钉在气泡顶部（渲染时要用：决定要不要垫那块占位空白） */
-  const [pinned, setPinned] = useState(false);
 
   /** 用户在流式期间主动点了「回到底部」：不再把他拽回气泡顶部 */
   const manualBottomRef = useRef(false);
@@ -694,7 +692,6 @@ function useScrollToBottom(
   const resetFollow = useCallback(() => {
     manualBottomRef.current = false;
     programmaticTargetRef.current = null;
-    setPinned(false);
     scrollDomToBottom();
   }, [scrollDomToBottom]);
 
@@ -744,7 +741,6 @@ function useScrollToBottom(
       if (pinStreamingTop) {
         programmaticTargetRef.current = target;
         dom.scrollTop = target;
-        setPinned(true);
         return;
       }
 
@@ -770,6 +766,7 @@ function useScrollToBottom(
     if (!autoScroll || manualBottomRef.current) return;
 
     pinStreamingMessageTop();
+    // 故意不加依赖：它要在每次渲染后跟着流式内容走一遍
   });
 
   // auto scroll when messages length changes
@@ -789,8 +786,6 @@ function useScrollToBottom(
     scrollToBottomManual,
     resetFollow,
     consumeProgrammaticScroll,
-    /** 桌面端是否已经钉在气泡顶部（决定要不要垫占位空白） */
-    streamPinned: pinned,
   };
 }
 
@@ -1442,7 +1437,6 @@ function _Chat() {
     scrollToBottomManual,
     resetFollow,
     consumeProgrammaticScroll,
-    streamPinned,
   } = useScrollToBottom(
     scrollRef,
     (isScrolledToBottom || isAttachWithTop) && !isTyping,
@@ -3111,8 +3105,10 @@ function _Chat() {
                * 桌面端流式输出时，在最后一条消息下面垫一块「一屏高」的空白。
                * 有了它，正在生成的答复可以被滚到画面顶部并停在那里
                * （否则内容不够一屏时，滚动位置最多只能到底部，气泡就会一直跟着往下走）。
+               *
+               * 只在「正在生成」时垫：生成结束后还留着，列表最底下就会多出一屏空白。
                */}
-              {pinStreamingTop && (isStreaming || streamPinned) && (
+              {pinStreamingTop && isStreaming && (
                 <div className={styles["chat-streaming-spacer"]} />
               )}
             </div>
