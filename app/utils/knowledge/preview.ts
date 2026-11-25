@@ -47,37 +47,5 @@ function bodyOf(section: KnowledgeChunk): string {
   return section.text.replace(/\s+/g, " ").slice(0, MAX_LENGTH);
 }
 
-export type HighlightPart = { text: string; hit: boolean };
-
-/**
- * 把文本按关键字切成「命中 / 未命中」片段，交给界面渲染成 `<mark>`。
- *
- * 用 indexOf 而不是正则：用户输入里的 `(`、`[`、`*` 之类不会炸正则，
- * 也不需要转义。
- *
- * @param text 原文
- * @param keyword 关键字（忽略大小写、忽略首尾空格）
- */
-export function highlightParts(text: string, keyword = ""): HighlightPart[] {
-  const needle = keyword.trim().toLowerCase();
-  if (!needle || !text) return [{ text, hit: false }];
-
-  const lower = text.toLowerCase();
-  const parts: HighlightPart[] = [];
-  let cursor = 0;
-
-  while (cursor < text.length) {
-    const index = lower.indexOf(needle, cursor);
-    if (index < 0) {
-      parts.push({ text: text.slice(cursor), hit: false });
-      break;
-    }
-    if (index > cursor) {
-      parts.push({ text: text.slice(cursor, index), hit: false });
-    }
-    parts.push({ text: text.slice(index, index + needle.length), hit: true });
-    cursor = index + needle.length;
-  }
-
-  return parts.length > 0 ? parts : [{ text, hit: false }];
-}
+/** 关键字高亮：实现在 utils/text-highlight，这里转出方便知识库模块统一引用 */
+export { highlightParts, type HighlightPart } from "../text-highlight";

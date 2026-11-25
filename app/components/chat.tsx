@@ -68,6 +68,7 @@ import {
 import { useLowMemoryStore } from "../store/low-memory";
 import { useSyncStore } from "../store/sync";
 import { useKnowledgeStore } from "../store/knowledge";
+import { useScrollTargetStore } from "../store/scroll-target";
 import { PINNED_BUDGET_TOKENS } from "../utils/knowledge/retrieval";
 import { filterValidSectionIds } from "../utils/knowledge/affected";
 import { showKnowledgePreview } from "./knowledge-preview";
@@ -2331,6 +2332,67 @@ function _Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [msgRenderIndex, chatPageSize]);
 
+  /**
+   * 从「搜索聊天记录」跳转过来：把目标消息滚进视野并闪一下。
+   *
+   * 消息是分页渲染的（只渲染窗口内的 N 条），所以不能直接 scrollIntoView：
+   * 目标可能压根不在 DOM 里。这里先把窗口挪到目标附近，再等它渲染出来
+   * （最多重试 12 次 × 60ms）——渲染窗口变更和 markdown 撑高都需要几帧。
+   */
+  const pendingScrollTarget = useScrollTargetStore((state) => state.messageId);
+  const consumeScrollTarget = useScrollTargetStore((state) => state.consume);
+  const [flashMessageId, setFlashMessageId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!pendingScrollTarget) return;
+
+    const index = session.messages.findIndex(
+      (message) => message.id === pendingScrollTarget,
+    );
+    consumeScrollTarget();
+    if (index < 0) return;
+
+    // 别和「进入会话滚到底部」抢滚动条
+    initialScrollCancelledRef.current = true;
+    // renderMessages = context + session.messages，窗口下标要加上前面那一段
+    setMsgRenderIndex(
+      clampRenderIndex(
+        renderMessages.length,
+        chatPageSize,
+        index + context.length,
+      ),
+    );
+
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const attempt = () => {
+      const dom = scrollRef.current;
+      const el = dom?.querySelector<HTMLElement>(
+        `[data-msg-id="${pendingScrollTarget}"]`,
+      );
+      if (dom && el) {
+        const top =
+          el.getBoundingClientRect().top -
+          dom.getBoundingClientRect().top +
+          dom.scrollTop;
+        // 留 80px 头部空间，别把气泡顶到边缘
+        dom.scrollTop = Math.max(0, top - 80);
+        setFlashMessageId(pendingScrollTarget);
+        window.setTimeout(() => setFlashMessageId(null), 1600);
+        return;
+      }
+      tries += 1;
+      if (tries <= 12) timer = setTimeout(attempt, 60);
+    };
+    attempt();
+
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+    // 只响应「新的一次跳转请求」
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingScrollTarget]);
+
   /** 流式进行中（用于区分“跟随底部”和“钉住气泡顶部”两种滚动策略） */
   const isStreamingNow = session.messages.some((m) => m.streaming);
   /** 上一次滚动位置：判断用户是不是在往上翻 */
@@ -2940,6 +3002,12 @@ function _Chat() {
                         data-msg-id={String(message.id ?? i)}
                         // 流式输出时用来定位“正在生成的那条消息”（滚动上限）
                         data-streaming={message.streaming ? "1" : undefined}
+                        // 从「搜索聊天记录」跳过来时闪一下，方便定位
+                        data-flash={
+                          flashMessageId === String(message.id)
+                            ? "1"
+                            : undefined
+                        }
                         className={
                           isUser
                             ? styles["chat-message-user"]

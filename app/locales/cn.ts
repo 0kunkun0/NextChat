@@ -1057,9 +1057,16 @@ const cn = {
       Loading: "加载中",
 
       SubTitle: (count: number) => `搜索到 ${count} 条结果`,
+      SubTitleWithMatches: (sessions: number, matches: number) =>
+        `${sessions} 个对话 · ${matches} 处命中`,
     },
     Item: {
       View: "查看",
+      MatchCount: (count: number) => `${count} 处命中`,
+      JumpToMessage: "跳到这条消息",
+      RoleUser: "我",
+      RoleAssistant: "AI",
+      ShowMore: (rest: number) => `还有 ${rest} 处，展开`,
     },
   },
   Plugin: {

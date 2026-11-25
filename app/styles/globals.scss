@@ -866,3 +866,93 @@ pre {
     }
   }
 }
+/* 搜索聊天记录：命中片段列表 */
+.search-chat-matches {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0 0;
+}
+
+.search-chat-match {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  border: var(--border-in-light);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background-color: var(--white);
+  color: var(--black);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--primary);
+  }
+}
+
+.search-chat-role {
+  flex: 0 0 auto;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.search-chat-snippet {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.search-chat-hit {
+  background-color: rgba(255, 196, 0, 0.35);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.search-chat-count {
+  font-size: 11px;
+  font-weight: normal;
+  opacity: 0.6;
+  margin-left: 6px;
+}
+
+.search-chat-more {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  color: var(--link);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.search-chat-empty {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+/*
+ * 从搜索结果跳转过来时，目标消息闪一下。
+ * 注意：消息容器用的是 CSS Modules（类名会被 hash），所以这里只按属性选，
+ * 不依赖 .chat-message 这种模块类名；
+ * 用 box-shadow 而不是 background，避免盖掉气泡本身的背景。
+ */
+[data-flash="1"] {
+  animation: chat-message-flash 1.6s ease-out;
+}
+
+@keyframes chat-message-flash {
+  0%,
+  55% {
+    box-shadow: 0 0 0 2px rgba(255, 196, 0, 0.9);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 196, 0, 0);
+  }
+}

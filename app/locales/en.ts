@@ -1079,9 +1079,16 @@ const en: LocaleType = {
       Loading: "Loading...",
 
       SubTitle: (count: number) => `Found ${count} results`,
+      SubTitleWithMatches: (sessions: number, matches: number) =>
+        `${sessions} conversation(s) · ${matches} match(es)`,
     },
     Item: {
       View: "View",
+      MatchCount: (count: number) => `${count} match(es)`,
+      JumpToMessage: "Jump to this message",
+      RoleUser: "You",
+      RoleAssistant: "AI",
+      ShowMore: (rest: number) => `${rest} more, expand`,
     },
   },
   Plugin: {

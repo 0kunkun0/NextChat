@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ErrorBoundary } from "./error";
 import styles from "./mask.module.scss";
 import { useNavigate } from "react-router-dom";
@@ -9,81 +9,62 @@ import Locale from "../locales";
 import { Path } from "../constant";
 
 import { useChatStore } from "../store";
+import { useScrollTargetStore } from "../store/scroll-target";
+import {
+  countMatches,
+  searchSessions,
+  type ChatSearchResult,
+} from "../utils/search-chat";
+import { highlightParts } from "../utils/text-highlight";
 
-type Item = {
-  id: number;
-  name: string;
-  content: string;
-};
+/**
+ * 搜索聊天记录。
+ *
+ * 修的两个问题：
+ *   1. 点结果只是切了会话，**不会跳到命中的那条消息**；
+ *   2. 一个会话里命中多处时，界面只截了前 70 字，看起来只有一个关键词。
+ *
+ * 现在按「会话 → 命中列表」展示，每条命中都能点，点击后：
+ *   选会话 → 把 messageId 交给聊天页 → 聊天页展开窗口并滚到那条消息。
+ */
 export function SearchChatPage() {
   const navigate = useNavigate();
 
   const chatStore = useChatStore();
-
   const sessions = chatStore.sessions;
   const selectSession = chatStore.selectSession;
+  const requestScrollTo = useScrollTargetStore((state) => state.request);
 
-  const [searchResults, setSearchResults] = useState<Item[]>([]);
+  const [keyword, setKeyword] = useState("");
+  const [results, setResults] = useState<ChatSearchResult[]>([]);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
-  const previousValueRef = useRef<string>("");
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const doSearch = useCallback((text: string) => {
-    const lowerCaseText = text.toLowerCase();
-    const results: Item[] = [];
 
-    sessions.forEach((session, index) => {
-      const fullTextContents: string[] = [];
-
-      session.messages.forEach((message) => {
-        const content = message.content as string;
-        if (!content.toLowerCase || content === "") return;
-        const lowerCaseContent = content.toLowerCase();
-
-        // full text search
-        let pos = lowerCaseContent.indexOf(lowerCaseText);
-        while (pos !== -1) {
-          const start = Math.max(0, pos - 35);
-          const end = Math.min(content.length, pos + lowerCaseText.length + 35);
-          fullTextContents.push(content.substring(start, end));
-          pos = lowerCaseContent.indexOf(
-            lowerCaseText,
-            pos + lowerCaseText.length,
-          );
-        }
-      });
-
-      if (fullTextContents.length > 0) {
-        results.push({
-          id: index,
-          name: session.topic,
-          content: fullTextContents.join("... "), // concat content with...
-        });
-      }
-    });
-
-    // sort by length of matching content
-    results.sort((a, b) => b.content.length - a.content.length);
-
-    return results;
+  const runSearch = useCallback((text: string) => {
+    // 每次都取最新 sessions，避免 effect 闭包里拿到旧快照
+    const current = useChatStore.getState().sessions;
+    setResults(searchSessions(current, text));
   }, []);
 
+  // 输入防抖：400ms 内没有新输入才真正检索（原来是 1s 轮询）
   useEffect(() => {
-    const intervalId = setInterval(() => {
-      if (searchInputRef.current) {
-        const currentValue = searchInputRef.current.value;
-        if (currentValue !== previousValueRef.current) {
-          if (currentValue.length > 0) {
-            const result = doSearch(currentValue);
-            setSearchResults(result);
-          }
-          previousValueRef.current = currentValue;
-        }
-      }
-    }, 1000);
+    const timer = setTimeout(() => runSearch(keyword), 400);
+    return () => clearTimeout(timer);
+  }, [keyword, runSearch, sessions]);
 
-    // Cleanup the interval on component unmount
-    return () => clearInterval(intervalId);
-  }, [doSearch]);
+  const totalMatches = useMemo(() => countMatches(results), [results]);
+
+  /** 跳到某条消息：先切会话，再把目标交给聊天页 */
+  const jumpToMessage = useCallback(
+    (sessionIndex: number, messageId: string) => {
+      if (!messageId) return;
+      requestScrollTo(messageId);
+      selectSession(sessionIndex);
+      navigate(Path.Chat);
+    },
+    [navigate, requestScrollTo, selectSession],
+  );
 
   return (
     <ErrorBoundary>
@@ -95,7 +76,10 @@ export function SearchChatPage() {
               {Locale.SearchChat.Page.Title}
             </div>
             <div className="window-header-submai-title">
-              {Locale.SearchChat.Page.SubTitle(searchResults.length)}
+              {Locale.SearchChat.Page.SubTitleWithMatches(
+                results.length,
+                totalMatches,
+              )}
             </div>
           </div>
 
@@ -112,53 +96,121 @@ export function SearchChatPage() {
 
         <div className={styles["mask-page-body"]}>
           <div className={styles["mask-filter"]}>
-            {/**搜索输入框 */}
             <input
               type="text"
               className={styles["search-bar"]}
               placeholder={Locale.SearchChat.Page.Search}
               autoFocus
               ref={searchInputRef}
+              value={keyword}
+              onChange={(e) => setKeyword(e.currentTarget.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  const searchText = e.currentTarget.value;
-                  if (searchText.length > 0) {
-                    const result = doSearch(searchText);
-                    setSearchResults(result);
-                  }
+                  runSearch(e.currentTarget.value);
                 }
               }}
             />
           </div>
 
           <div>
-            {searchResults.map((item) => (
-              <div
-                className={styles["mask-item"]}
-                key={item.id}
-                onClick={() => {
-                  navigate(Path.Chat);
-                  selectSession(item.id);
-                }}
-                style={{ cursor: "pointer" }}
-              >
-                {/** 搜索匹配的文本 */}
-                <div className={styles["mask-header"]}>
-                  <div className={styles["mask-title"]}>
-                    <div className={styles["mask-name"]}>{item.name}</div>
-                    {item.content.slice(0, 70)}
+            {results.map((result) => {
+              const isExpanded = expanded[result.sessionId] === true;
+              const visible = isExpanded
+                ? result.matches
+                : result.matches.slice(0, 3);
+
+              return (
+                <div
+                  className={styles["mask-item"]}
+                  key={result.sessionId}
+                  style={{ cursor: "pointer" }}
+                >
+                  {/** 会话标题 + 命中数 */}
+                  <div className={styles["mask-header"]}>
+                    <div className={styles["mask-title"]}>
+                      <div className={styles["mask-name"]}>
+                        {result.topic || "(无标题)"}
+                        <span className="search-chat-count">
+                          {" "}
+                          {Locale.SearchChat.Item.MatchCount(
+                            result.matches.length,
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                    <div className={styles["mask-actions"]}>
+                      <IconButton
+                        icon={<EyeIcon />}
+                        text={Locale.SearchChat.Item.View}
+                        onClick={() =>
+                          jumpToMessage(
+                            result.sessionIndex,
+                            result.matches[0]?.messageId ?? "",
+                          )
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  {/** 每一处命中单独一行，点击直达 */}
+                  <div className="search-chat-matches">
+                    {visible.map((match, index) => (
+                      <button
+                        type="button"
+                        key={`${match.messageId}-${match.matchIndex}-${index}`}
+                        className="search-chat-match"
+                        title={Locale.SearchChat.Item.JumpToMessage}
+                        onClick={() =>
+                          jumpToMessage(result.sessionIndex, match.messageId)
+                        }
+                      >
+                        <span className="search-chat-role">
+                          {match.role === "user"
+                            ? Locale.SearchChat.Item.RoleUser
+                            : Locale.SearchChat.Item.RoleAssistant}
+                        </span>
+                        <span className="search-chat-snippet">
+                          {highlightParts(match.snippet, keyword).map(
+                            (part, i) =>
+                              part.hit ? (
+                                <mark key={i} className="search-chat-hit">
+                                  {part.text}
+                                </mark>
+                              ) : (
+                                <span key={i}>{part.text}</span>
+                              ),
+                          )}
+                        </span>
+                      </button>
+                    ))}
+
+                    {result.matches.length > visible.length && (
+                      <button
+                        type="button"
+                        className="search-chat-more"
+                        onClick={() =>
+                          setExpanded((prev) => ({
+                            ...prev,
+                            [result.sessionId]: true,
+                          }))
+                        }
+                      >
+                        {Locale.SearchChat.Item.ShowMore(
+                          result.matches.length - visible.length,
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
-                {/** 操作按钮 */}
-                <div className={styles["mask-actions"]}>
-                  <IconButton
-                    icon={<EyeIcon />}
-                    text={Locale.SearchChat.Item.View}
-                  />
-                </div>
+              );
+            })}
+
+            {keyword.trim().length > 0 && results.length === 0 && (
+              <div className="search-chat-empty">
+                {Locale.SearchChat.Page.NoResult}
               </div>
-            ))}
+            )}
           </div>
         </div>
       </div>
