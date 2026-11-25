@@ -73,6 +73,7 @@ import { PINNED_BUDGET_TOKENS } from "../utils/knowledge/retrieval";
 import { filterValidSectionIds } from "../utils/knowledge/affected";
 import { showKnowledgePreview } from "./knowledge-preview";
 import { showKnowledgeSectionPicker } from "./knowledge-picker";
+import { showMessageEdit } from "./message-edit";
 import { KnowledgeBadge } from "./knowledge-badge";
 import { uploadSessionNow } from "../utils/upload-one";
 // 误删兜底暂时关闭（见 _Chat 里的说明）。需要时再放开：
@@ -89,7 +90,11 @@ import {
   toChatAttachment,
   uploadFile,
 } from "../utils/attachments";
-import { hasPendingAttachments } from "../utils/attachment-rules";
+import {
+  hasPendingAttachments,
+  rebuildContent,
+} from "../utils/attachment-rules";
+import { resolveEditedMessage } from "../utils/context-prompt";
 import { AttachmentChips, MessageAttachments } from "./attachments";
 import type { ChatAttachment } from "../store/chat";
 
@@ -2349,19 +2354,28 @@ function _Chat() {
     const index = session.messages.findIndex(
       (message) => message.id === pendingScrollTarget,
     );
-    consumeScrollTarget();
+    /**
+     * 当前会话里没有这条消息：说明会话还没切过来（或者搜索结果指向别的会话）。
+     * **不要 consume**，等 session.id / messages 变化后再试 ——
+     * 以前这里先 consume 再判断，长会话下经常一次就丢掉了请求。
+     */
     if (index < 0) return;
 
     // 别和「进入会话滚到底部」抢滚动条
     initialScrollCancelledRef.current = true;
-    // renderMessages = context + session.messages，窗口下标要加上前面那一段
-    setMsgRenderIndex(
-      clampRenderIndex(
-        renderMessages.length,
-        chatPageSize,
-        index + context.length,
-      ),
+
+    /**
+     * 消息是懒加载的：只渲染窗口内的 3 页。目标可能在窗口外，
+     * 所以先把窗口起点挪到目标附近，再等它真的出现在 DOM 里。
+     */
+    const desired = clampRenderIndex(
+      renderMessages.length,
+      chatPageSize,
+      index + context.length,
     );
+    if (desired !== msgRenderIndex) {
+      setMsgRenderIndex(desired);
+    }
 
     let tries = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -2379,19 +2393,36 @@ function _Chat() {
         dom.scrollTop = Math.max(0, top - 80);
         setFlashMessageId(pendingScrollTarget);
         window.setTimeout(() => setFlashMessageId(null), 1600);
+        consumeScrollTarget();
         return;
       }
+
       tries += 1;
-      if (tries <= 12) timer = setTimeout(attempt, 60);
+      // 长会话 + 图片/代码块时渲染更慢，给到约 2.4s
+      if (tries <= 30) {
+        timer = setTimeout(attempt, 80);
+      } else {
+        console.warn("[Search] message not found in DOM, giving up", {
+          messageId: pendingScrollTarget,
+          rendered: renderMessages.length,
+          windowStart: msgRenderIndex,
+        });
+        consumeScrollTarget();
+      }
     };
     attempt();
 
     return () => {
       if (timer) clearTimeout(timer);
     };
-    // 只响应「新的一次跳转请求」
+    // 会话切换 / 消息数变化 / 窗口变化都要重新尝试定位
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingScrollTarget]);
+  }, [
+    pendingScrollTarget,
+    session.id,
+    session.messages.length,
+    msgRenderIndex,
+  ]);
 
   /** 流式进行中（用于区分“跟随底部”和“钉住气泡顶部”两种滚动策略） */
   const isStreamingNow = session.messages.some((m) => m.streaming);
@@ -3022,37 +3053,69 @@ function _Chat() {
                                   icon={<EditIcon />}
                                   aria={Locale.Chat.Actions.Edit}
                                   onClick={async () => {
-                                    const newMessage = await showPrompt(
-                                      Locale.Chat.Actions.Edit,
-                                      getMessageTextContent(message),
-                                      10,
-                                    );
-                                    let newContent:
-                                      | string
-                                      | MultimodalContent[] = newMessage;
-                                    const images = getMessageImages(message);
-                                    if (images.length > 0) {
-                                      newContent = [
-                                        { type: "text", text: newMessage },
-                                      ];
-                                      for (let i = 0; i < images.length; i++) {
-                                        newContent.push({
-                                          type: "image_url",
-                                          image_url: {
-                                            url: images[i],
-                                          },
-                                        });
-                                      }
-                                    }
+                                    /**
+                                     * 气泡上的「编辑」改成小弹窗：
+                                     *   - 正文
+                                     *   - assistant：是否生成完毕（取消勾选 → 消息上出现「继续生成」）
+                                     *   - user：附件（删除已有 / 再传新的）
+                                     *
+                                     * 老消息可能只有 image_url 块、没有 attachments 字段，
+                                     * 这里把它们补成附件，才能在弹窗里删除。
+                                     */
+                                    const existing = message.attachments ?? [];
+                                    const derived = getMessageImages(message)
+                                      .filter(
+                                        (url) =>
+                                          !existing.some(
+                                            (item) => item.url === url,
+                                          ),
+                                      )
+                                      .map((url, index) => ({
+                                        id: `img-${index}-${Date.now()}`,
+                                        kind: "image" as const,
+                                        name: `图片 ${index + 1}`,
+                                        bytes: 0,
+                                        mime: "image/*",
+                                        url,
+                                      }));
+
+                                    const result = await showMessageEdit({
+                                      message,
+                                      initial: {
+                                        text: getMessageTextContent(message),
+                                        attachments: [...derived, ...existing],
+                                        isComplete: message.isComplete,
+                                      },
+                                    });
+                                    if (!result) return;
+
                                     chatStore.updateTargetSession(
                                       session,
-                                      (session) => {
-                                        const m = session.mask.context
-                                          .concat(session.messages)
-                                          .find((m) => m.id === message.id);
-                                        if (m) {
-                                          m.content = newContent;
-                                        }
+                                      (current) => {
+                                        const m = current.mask.context
+                                          .concat(current.messages)
+                                          .find(
+                                            (item) => item.id === message.id,
+                                          );
+                                        if (!m) return;
+
+                                        const edited = resolveEditedMessage(
+                                          m,
+                                          {
+                                            ...m,
+                                            content: result.text,
+                                            attachments: result.attachments,
+                                            isComplete: result.isComplete,
+                                          },
+                                          rebuildContent,
+                                        );
+                                        Object.assign(m, edited);
+
+                                        // 换数组引用，触发消息列表 / 引用标记重算
+                                        current.messages =
+                                          current.messages.concat();
+                                        current.mask.context =
+                                          current.mask.context.concat();
                                       },
                                     );
                                   }}

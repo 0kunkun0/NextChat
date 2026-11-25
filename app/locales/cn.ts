@@ -105,6 +105,15 @@ const cn = {
         `📚 知识库 ${sections} 节 · ${tokens} token`,
       Truncated: "本节过长，已按代码块边界截断",
     },
+    MessageEdit: {
+      Title: "编辑这条消息",
+      Confirm: "保存",
+      Cancel: "取消",
+      TextPlaceholder: "消息内容",
+      Attachments: "附件",
+      NoAttachments: "没有附件",
+      CompleteOffHint: "取消勾选后，消息上会出现「继续生成」",
+    },
     EditMessage: {
       Title: "编辑消息记录",
       Topic: {

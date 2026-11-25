@@ -110,6 +110,15 @@ const en: LocaleType = {
         `📚 ${sections} section(s) · ${tokens} tokens`,
       Truncated: "Section too long, truncated at a code-fence boundary",
     },
+    MessageEdit: {
+      Title: "Edit this message",
+      Confirm: "Save",
+      Cancel: "Cancel",
+      TextPlaceholder: "Message content",
+      Attachments: "Attachments",
+      NoAttachments: "No attachments",
+      CompleteOffHint: 'Unchecked, the message shows a "Continue" button',
+    },
     EditMessage: {
       Title: "Edit All Messages",
       Topic: {

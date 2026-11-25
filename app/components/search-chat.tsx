@@ -55,12 +55,22 @@ export function SearchChatPage() {
 
   const totalMatches = useMemo(() => countMatches(results), [results]);
 
-  /** 跳到某条消息：先切会话，再把目标交给聊天页 */
+  /**
+   * 跳到某条消息：先切会话，再把目标交给聊天页。
+   *
+   * 这里**按 session.id 现查下标**，不用检索时记下的 sessionIndex：
+   * 会话是按 lastUpdate 排序的，搜索结果放一会儿再点，下标可能已经指向别的会话了。
+   */
   const jumpToMessage = useCallback(
-    (sessionIndex: number, messageId: string) => {
+    (sessionId: string, messageId: string) => {
       if (!messageId) return;
+      const index = useChatStore
+        .getState()
+        .sessions.findIndex((session) => session.id === sessionId);
+      if (index < 0) return;
+
       requestScrollTo(messageId);
-      selectSession(sessionIndex);
+      selectSession(index);
       navigate(Path.Chat);
     },
     [navigate, requestScrollTo, selectSession],
@@ -145,7 +155,7 @@ export function SearchChatPage() {
                         text={Locale.SearchChat.Item.View}
                         onClick={() =>
                           jumpToMessage(
-                            result.sessionIndex,
+                            result.sessionId,
                             result.matches[0]?.messageId ?? "",
                           )
                         }
@@ -162,7 +172,7 @@ export function SearchChatPage() {
                         className="search-chat-match"
                         title={Locale.SearchChat.Item.JumpToMessage}
                         onClick={() =>
-                          jumpToMessage(result.sessionIndex, match.messageId)
+                          jumpToMessage(result.sessionId, match.messageId)
                         }
                       >
                         <span className="search-chat-role">
