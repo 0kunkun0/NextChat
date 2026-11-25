@@ -77,6 +77,7 @@ import { uploadSessionNow } from "../utils/upload-one";
 // 误删兜底暂时关闭（见 _Chat 里的说明）。需要时再放开：
 // import { attachInputDiagnostics } from "../utils/input-diag";
 import { getPortalHost } from "../utils/portal";
+import { shouldRestoreLostInput } from "../utils/input-recovery";
 import {
   ACCEPT_FILE,
   MAX_ATTACHMENTS,
@@ -1409,6 +1410,64 @@ function _Chat() {
   userInputRef.current = userInput;
 
   /**
+   * 写入输入框内容 —— **只有这里可以改 textarea 的 DOM 值**。
+   *
+   * 为什么不用受控组件（value={userInput}）：
+   *   iOS 15 的 WKWebView 会给文本服务（选中后的「翻译 / 查询」、听写、候选词替换）
+   *   在 textarea 里维护一个**私有的 range 指针**；任何 JS 对 `textarea.value` 的写入
+   *   都会让这个指针失效，系统操作回来之后按旧偏移去改文本 → 把文字吞掉。
+   *   React 的受控 value 只要状态和 DOM 不一致就会写 value，正好踩这个坑。
+   *
+   * 现在的做法：textarea 非受控（defaultValue），用户输入只更新 state、不碰 DOM；
+   * 只有「发送后清空 / 插入提示词 / 引用消息 / 恢复草稿」这类外部改动才走这个函数，
+   * 而且**值相同就不写**（写入本身也会让 WebKit 的指针失效）。
+   */
+  const applyUserInput = useCallback((next: string) => {
+    const el = inputRef.current;
+    if (el && el.value !== next) {
+      el.value = next;
+    }
+    userInputRef.current = next;
+    setUserInput(next);
+  }, []);
+
+  /**
+   * 输入框失焦期间的 `input` 事件计数 + 「有没有触发过 input」。
+   *
+   * 用来兜住 iOS 上「选中文字 → 点系统菜单的『翻译 / 查询』→ 文字被吞，而且
+   * 一个 input 事件都没发」这条路径：
+   *   - 正常输入 / 拼音选词 / 系统替换，一定会伴随 input 事件；
+   *   - 只有“DOM 变了却没有任何 input 事件”才是真正被吞。
+   *
+   * 注意：这个判据和之前那版「内容变短就判定误删」完全不同——
+   * 它不看长度，只看有没有事件，所以不会像以前那样误伤拼音输入。
+   */
+  const inputEventsWhileAwayRef = useRef(0);
+  const isFocusedRef = useRef(false);
+
+  const handleInputBlur = useCallback(() => {
+    isFocusedRef.current = false;
+    inputEventsWhileAwayRef.current = 0;
+  }, []);
+
+  const handleInputFocus = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    isFocusedRef.current = true;
+
+    const expected = userInputRef.current;
+    const lostSilently =
+      inputEventsWhileAwayRef.current === 0 && el.value !== expected;
+    if (lostSilently) {
+      console.warn("[Input] text lost without any input event, restoring", {
+        dom: el.value.length,
+        expected: expected.length,
+      });
+      el.value = expected;
+    }
+  }, []);
+
+  /**
    * iOS 15 的文本框诊断 + 误删兜底 —— **暂时关闭**。
    *
    * 关掉的原因：
@@ -1598,7 +1657,7 @@ function _Chat() {
     }
     const matchCommand = chatCommands.match(userInput);
     if (matchCommand.matched) {
-      setUserInput("");
+      applyUserInput("");
       setPromptHints([]);
       matchCommand.invoke();
       return;
@@ -1694,7 +1753,7 @@ function _Chat() {
     setAttachImages([]);
     setAttachFiles([]);
     chatStore.setLastInput(userInput);
-    setUserInput("");
+    applyUserInput("");
     setPromptHints([]);
     if (!isMobileScreen) inputRef.current?.focus();
     // 新的一轮生成：清掉“用户要求停在底部”，允许重新钉到气泡顶部
@@ -1709,10 +1768,10 @@ function _Chat() {
       if (matchedChatCommand.matched) {
         // if user is selecting a chat command, just trigger it
         matchedChatCommand.invoke();
-        setUserInput("");
+        applyUserInput("");
       } else {
         // or fill the prompt
-        setUserInput(prompt.content);
+        applyUserInput(prompt.content);
       }
       inputRef.current?.focus();
     }, 30);
@@ -1788,7 +1847,7 @@ function _Chat() {
       userInput.length <= 0 &&
       !(e.metaKey || e.altKey || e.ctrlKey)
     ) {
-      setUserInput(chatStore.lastInput ?? "");
+      applyUserInput(chatStore.lastInput ?? "");
       e.preventDefault();
       return;
     }
@@ -1801,7 +1860,7 @@ function _Chat() {
     // copy to clipboard
     if (selectOrCopy(e.currentTarget, getMessageTextContent(message))) {
       if (userInput.length === 0) {
-        setUserInput(getMessageTextContent(message));
+        applyUserInput(getMessageTextContent(message));
       }
 
       e.preventDefault();
@@ -2371,7 +2430,7 @@ function _Chat() {
     const key = UNFINISHED_INPUT(session.id);
     const mayBeUnfinishedInput = localStorage.getItem(key);
     if (mayBeUnfinishedInput && userInput.length === 0) {
-      setUserInput(mayBeUnfinishedInput);
+      applyUserInput(mayBeUnfinishedInput);
       localStorage.removeItem(key);
     }
 
@@ -3218,7 +3277,7 @@ function _Chat() {
                   }
 
                   inputRef.current?.focus();
-                  setUserInput("/");
+                  applyUserInput("/");
                   onSearch("");
                 }}
                 setShowShortcutKeyModal={setShowShortcutKeyModal}
@@ -3250,8 +3309,14 @@ function _Chat() {
                   ref={inputRef}
                   className={styles["chat-input"]}
                   placeholder={Locale.Chat.Input(submitKey)}
-                  onInput={(e) => onInput(e.currentTarget.value)}
-                  value={userInput}
+                  onInput={(e) => {
+                    // 记一笔：失焦期间只要来过 input 事件，就不是“被静默吞掉”
+                    inputEventsWhileAwayRef.current += 1;
+                    onInput(e.currentTarget.value);
+                  }}
+                  onFocus={handleInputFocus}
+                  onBlur={handleInputBlur}
+                  defaultValue={userInput}
                   onKeyDown={onInputKeyDown}
                   /*
                    * 这里原来挂了 onFocus / onClick = scrollToBottom：
