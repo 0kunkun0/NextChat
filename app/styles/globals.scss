@@ -961,11 +961,20 @@ pre {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /*
+   * 弹窗是 modal-container-max（固定高度、content flex-grow），
+   * 这里必须撑满，否则内容堆在顶部、下面留一大片空白，
+   * 文本框反而只有 140px 高。
+   */
+  height: 100%;
+  min-height: 0;
 }
 
 .message-edit-text {
   width: 100%;
-  min-height: 140px;
+  /* 吃掉剩余高度：编辑正文时有足够大的区域 */
+  flex: 1 1 auto;
+  min-height: 120px;
   resize: vertical;
   border: var(--border-in-light);
   border-radius: 8px;
@@ -994,6 +1003,10 @@ pre {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* 附件多的时候自己滚，不跟文本框抢高度 */
+  flex: 0 1 auto;
+  max-height: 40%;
+  overflow: auto;
 }
 
 .message-edit-attachments-head {
@@ -1038,8 +1051,16 @@ pre {
   flex: 0 0 auto;
   opacity: 0.6;
 }
+/* 深色主题：日期/用量都靠自己那点不透明度，统一稍微提亮一档 */
+.dark .chat-message-usage {
+  opacity: 1;
+}
+
 /* 消息时间后面的 token 用量 */
 .chat-message-usage {
-  opacity: 0.75;
+  opacity: 0.9;
   cursor: help;
+  /* 父级 .chat-message-action-date 是 pointer-events: none，
+     这里要单独放行，否则悬停看不到明细 */
+  pointer-events: auto;
 }

@@ -339,6 +339,10 @@ const cn = {
     },
     Theme: "主题",
     TightBorder: "无边框模式",
+    ShowTokenUsage: {
+      Title: "显示 token 消耗",
+      SubTitle: "在消息下方的时间旁边，显示服务端返回的输入 / 输出 token 数",
+    },
     SendPreviewBubble: {
       Title: "预览气泡",
       SubTitle: "在预览气泡中预览 Markdown 内容",

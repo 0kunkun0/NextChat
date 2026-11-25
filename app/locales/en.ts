@@ -346,6 +346,11 @@ const en: LocaleType = {
     },
     Theme: "Theme",
     TightBorder: "Tight Border",
+    ShowTokenUsage: {
+      Title: "Show token usage",
+      SubTitle:
+        "Show the input / output token counts returned by the server next to the message time",
+    },
     SendPreviewBubble: {
       Title: "Send Preview Bubble",
       SubTitle: "Preview markdown in bubble",

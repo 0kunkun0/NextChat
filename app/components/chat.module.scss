@@ -684,7 +684,11 @@
 
 .chat-message-action-date {
   font-size: 12px;
-  opacity: 0.2;
+  /*
+   * 以前是 0.2：浅色主题勉强能看，深色主题里几乎看不见（--black 是近白，
+   * 20% 不透明度压在纯黑背景上几乎消失）。这里提到 0.6 保证两种主题都读得清。
+   */
+  opacity: 0.6;
   white-space: nowrap;
   transition: all ease 0.6s;
   color: var(--black);

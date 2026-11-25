@@ -85,6 +85,8 @@ export const DEFAULT_CONFIG = {
   enableArtifacts: true, // show artifacts config
 
   enableCodeFold: true, // code fold config
+  /** 在气泡下方的时间旁边显示服务端返回的 token 消耗 */
+  showTokenUsage: true,
 
   disablePromptHint: false,
 

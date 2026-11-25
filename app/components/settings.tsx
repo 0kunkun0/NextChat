@@ -2632,6 +2632,22 @@ export function Settings() {
           </ListItem>
 
           <ListItem
+            title={Locale.Settings.ShowTokenUsage.Title}
+            subTitle={Locale.Settings.ShowTokenUsage.SubTitle}
+          >
+            <input
+              aria-label={Locale.Settings.ShowTokenUsage.Title}
+              type="checkbox"
+              checked={config.showTokenUsage !== false}
+              onChange={(e) =>
+                updateConfig(
+                  (config) => (config.showTokenUsage = e.currentTarget.checked),
+                )
+              }
+            ></input>
+          </ListItem>
+
+          <ListItem
             title={Locale.Settings.ChatHeader.ShowSubTitle.Title}
             subTitle={Locale.Settings.ChatHeader.ShowSubTitle.SubTitle}
           >

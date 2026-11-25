@@ -3442,7 +3442,9 @@ function _Chat() {
                               ? Locale.Chat.IsContext
                               : message.date.toLocaleString()}
                             {/* 服务端返回的 token 用量（悬停看输入/输出明细） */}
-                            {!isContext && message.usage?.totalTokens ? (
+                            {!isContext &&
+                            config.showTokenUsage !== false &&
+                            message.usage?.totalTokens ? (
                               <span
                                 className="chat-message-usage"
                                 title={formatTokenDetail(message.usage, {
