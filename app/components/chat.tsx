@@ -141,7 +141,6 @@ import {
   Modal,
   Selector,
   showConfirm,
-  showPrompt,
   showToast,
 } from "./ui-lib";
 import { useNavigate } from "react-router-dom";
@@ -163,7 +162,7 @@ import { ExportMessageModal } from "./exporter";
 import { MessageDebugModal } from "./message-debug";
 import { getClientConfig } from "../config/client";
 import { useAllModels } from "../utils/hooks";
-import { ClientApi, MultimodalContent, getClientApi } from "../client/api";
+import { ClientApi, getClientApi } from "../client/api";
 import { createTTSPlayer } from "../utils/audio";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "../utils/ms_edge_tts";
 
@@ -1492,8 +1491,12 @@ function _Chat() {
     isFocusedRef.current = true;
 
     const expected = userInputRef.current;
-    const lostSilently =
-      inputEventsWhileAwayRef.current === 0 && el.value !== expected;
+    // 判据：失焦期间**没有任何 input 事件**、但 DOM 和状态不一致 → 被静默吞掉了
+    const lostSilently = shouldRestoreLostInput({
+      inputEventsWhileAway: inputEventsWhileAwayRef.current,
+      domValue: el.value,
+      expectedValue: expected,
+    });
     if (lostSilently) {
       console.warn("[Input] text lost without any input event, restoring", {
         dom: el.value.length,
@@ -1587,11 +1590,25 @@ function _Chat() {
    */
   const initialScrollCancelledRef = useRef(false);
   useEffect(() => {
+    /**
+     * 从「搜索聊天记录」跳过来时，别先贴底再跳。
+     *
+     * 两个 effect 的执行顺序是「进入会话 → 贴底」在前、「跳转定位」在后，
+     * 所以这里必须**直接查一次请求**（而不是等后面的 effect 去置 cancel 标记），
+     * 否则移动端会先滚到底部、再被拉回去，看起来像抽搐。
+     */
+    if (useScrollTargetStore.getState().messageId) {
+      initialScrollCancelledRef.current = true;
+      return;
+    }
+
     let timer: ReturnType<typeof setTimeout> | undefined;
     let tries = 0;
 
     const tick = () => {
       if (initialScrollCancelledRef.current) return;
+      // 补滚期间才来的跳转请求：同样让位
+      if (useScrollTargetStore.getState().messageId) return;
       // 正在流式输出时不要抢滚动条：那种情况由「钉住/跟随」逻辑接管
       const streamingNow = useChatStore
         .getState()
@@ -1610,6 +1627,25 @@ function _Chat() {
     // 每个会话只做一次首屏定位
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id]);
+
+  /**
+   * 自动聚焦输入框（桌面端）。
+   *
+   * 不用 textarea 的 autoFocus 属性：移动端/平板在视口稍宽时
+   * `isMobileScreen` 可能判成 false，浏览器就会自己弹键盘；
+   * 而且从搜索跳转过来时也不该抢焦点（会顶起键盘、遮住刚定位到的消息）。
+   */
+  useEffect(() => {
+    if (isMobileScreen) return;
+    if (typeof document !== "undefined") {
+      const active = document.activeElement;
+      if (active && active !== document.body) return;
+    }
+    // 有跳转请求时先不聚焦
+    if (useScrollTargetStore.getState().messageId) return;
+    inputRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [hitBottom, setHitBottom] = useState(true);
   const navigate = useNavigate();
@@ -2511,7 +2547,6 @@ function _Chat() {
 
   const clientConfig = useMemo(() => getClientConfig(), []);
 
-  const autoFocus = !isMobileScreen; // wont auto focus on mobile screen
   const showMaxIcon = !isMobileScreen && !clientConfig?.isApp;
 
   useCommand({
@@ -3506,7 +3541,6 @@ function _Chat() {
                    */
                   onPaste={handlePaste}
                   rows={inputRows}
-                  autoFocus={autoFocus}
                   style={{
                     fontSize: config.fontSize,
                     fontFamily: config.fontFamily,
