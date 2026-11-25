@@ -74,7 +74,8 @@ import { showKnowledgePreview } from "./knowledge-preview";
 import { showKnowledgeSectionPicker } from "./knowledge-picker";
 import { KnowledgeBadge } from "./knowledge-badge";
 import { uploadSessionNow } from "../utils/upload-one";
-import { attachInputDiagnostics } from "../utils/input-diag";
+// 误删兜底暂时关闭（见 _Chat 里的说明）。需要时再放开：
+// import { attachInputDiagnostics } from "../utils/input-diag";
 import { getPortalHost } from "../utils/portal";
 import {
   ACCEPT_FILE,
@@ -1408,23 +1409,30 @@ function _Chat() {
   userInputRef.current = userInput;
 
   /**
-   * iOS 15 的文本框诊断 + 误删兜底。
-   * 选中文字后点系统菜单的「共享 / 翻译 / 查询」，偶尔会把选中的文字吞掉，
-   * 而且 Web 端没有任何事件线索 → 这里把 beforeinput / input / 选区 都记进日志，
-   * 并在「内容大幅变短且最近没按过键」时把原值恢复回来。
+   * iOS 15 的文本框诊断 + 误删兜底 —— **暂时关闭**。
+   *
+   * 关掉的原因：
+   *   1. 误报：移动端用拼音输入时，如果把「前半部分拼音」选成候选词，
+   *      输入框内容会短暂变短，这里就判定成“系统误删”并弹提示 + 回填，
+   *      等于打断了正常输入；
+   *   2. 漏报：真正被吞的场景（选中一段文字 → 点系统菜单的「翻译 / 查询」）
+   *      反倒一个事件都收不到，兜底从来没触发过。
+   *
+   * 代码与日志能力都保留在 utils/input-diag.ts 里，需要时把下面这段放开即可
+   * （或者只保留日志、把 onSuspect 去掉，见文件内注释）。
    */
-  useEffect(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    return attachInputDiagnostics(el, {
-      label: "chat-input",
-      getExpectedValue: () => userInputRef.current,
-      onSuspect: (restored) => {
-        setUserInput(restored);
-        showToast(Locale.Chat.InputRestored);
-      },
-    });
-  }, []);
+  // useEffect(() => {
+  //   const el = inputRef.current;
+  //   if (!el) return;
+  //   return attachInputDiagnostics(el, {
+  //     label: "chat-input",
+  //     getExpectedValue: () => userInputRef.current,
+  //     onSuspect: (restored) => {
+  //       setUserInput(restored);
+  //       showToast(Locale.Chat.InputRestored);
+  //     },
+  //   });
+  // }, []);
   const [isLoading, setIsLoading] = useState(false);
   const { submitKey, shouldSubmit } = useSubmitHandler();
   const scrollRef = useRef<HTMLDivElement>(null);
