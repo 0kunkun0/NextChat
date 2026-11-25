@@ -138,3 +138,26 @@ export function rebuildContent(
   }
   return blocks;
 }
+/**
+ * 从附件列表里挑出「已经上传完成、需要作为 file 内容块发给模型」的那些。
+ *
+ * 判据只有一条：**有 file_id**。
+ *
+ * 以前这里隐含要求 `kind === "file"`，于是通过「📎 上传文件」传的图片
+ * （kind 是 "image"，但同样传到了 Files API、拿到了 file_id）会在发送时被丢掉：
+ * 输入框有 chip、模型看不到、消息里也没有附件记录（编辑历史同样看不到）。
+ *
+ * @param attachments 输入框上挂的附件
+ */
+export function collectUploadedAttachments(
+  attachments: ChatAttachment[] | undefined,
+): ChatAttachment[] {
+  return (attachments ?? []).filter((item) => !!item.fileId);
+}
+
+/** 还有附件正在上传（占位 chip 没有 file_id） */
+export function hasPendingAttachments(
+  attachments: ChatAttachment[] | undefined,
+): boolean {
+  return (attachments ?? []).some((item) => !item.fileId);
+}

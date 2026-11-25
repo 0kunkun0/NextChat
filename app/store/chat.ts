@@ -16,6 +16,7 @@ import { getClientApi } from "../client/api";
 import { ChatControllerPool } from "../client/controller";
 import { clearBackups } from "../utils/backup";
 import { showToast } from "../components/ui-lib";
+import { collectUploadedAttachments } from "../utils/attachment-rules";
 import {
   DEFAULT_INPUT_TEMPLATE,
   DEFAULT_MODELS,
@@ -625,9 +626,15 @@ export const useChatStore = createPersistStore(
           ? content
           : fillTemplateWith(content, modelConfig);
 
-        const files = (attachFiles ?? []).filter(
-          (file) => file.kind === "file" && file.fileId,
-        );
+        /**
+         * 走 DeepSeek Files API 的附件：**只要拿到 file_id 就要发给模型**。
+         *
+         * 这里原来写的是 `file.kind === "file" && file.fileId`，于是通过「📎 上传文件」
+         * 传的**图片**（kind 是 "image"，但同样传到了 Files API、有 file_id）被整条丢掉：
+         * 输入框上能看到 chip，发出去模型看不到，消息里也没有附件记录，
+         * 编辑历史自然也就看不到 —— 必须在编辑时重新传一遍才出现。
+         */
+        const files = collectUploadedAttachments(attachFiles);
         const hasImages = !!(attachImages && attachImages.length > 0);
 
         if (!isMcpResponse && (hasImages || files.length > 0)) {

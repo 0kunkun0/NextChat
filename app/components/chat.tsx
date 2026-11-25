@@ -88,6 +88,7 @@ import {
   toChatAttachment,
   uploadFile,
 } from "../utils/attachments";
+import { hasPendingAttachments } from "../utils/attachment-rules";
 import { AttachmentChips, MessageAttachments } from "./attachments";
 import type { ChatAttachment } from "../store/chat";
 
@@ -1690,6 +1691,17 @@ function _Chat() {
       applyUserInput("");
       setPromptHints([]);
       matchCommand.invoke();
+      return;
+    }
+
+    /**
+     * 还有附件没传完（占位 chip 上没有 file_id）就先别发。
+     *
+     * 否则这条消息会“看起来带了附件、实际上什么也没带”：模型看不到，
+     * 消息里也不会留下附件记录。
+     */
+    if (hasPendingAttachments(attachFiles)) {
+      showToast(Locale.Chat.Attachments.StillUploading);
       return;
     }
 

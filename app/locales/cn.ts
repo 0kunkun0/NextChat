@@ -46,6 +46,7 @@ const cn = {
       Unsupported: (name: string) => `不支持的文件类型：${name}`,
       TooLarge: (name: string, mb: number) =>
         `${name} 超过 ${mb}MB 上限，请压缩后再上传`,
+      StillUploading: "附件还在上传中，稍等一下再发",
       UploadFailed: (message: string) =>
         `上传失败${message ? `：${message}` : ""}`,
     },

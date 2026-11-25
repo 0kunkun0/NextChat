@@ -49,6 +49,7 @@ const en: LocaleType = {
       Unsupported: (name: string) => `Unsupported file type: ${name}`,
       TooLarge: (name: string, mb: number) =>
         `${name} is larger than the ${mb}MB limit`,
+      StillUploading: "Attachments are still uploading, please wait",
       UploadFailed: (message: string) =>
         `Upload failed${message ? `: ${message}` : ""}`,
     },
