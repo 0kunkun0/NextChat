@@ -74,6 +74,25 @@ export function getStreamingPinTarget(params: {
   return { target, shouldScroll: target > params.scrollTop + 1 };
 }
 /**
+ * 流式期间还要不要继续把气泡钉在顶部。
+ *
+ * 三个条件分别对应三种“用户已经接管滚动”的情况：
+ *   - autoScroll=false：用户往上翻历史；
+ *   - manualBottom=true：用户点了「回到底部」按钮；
+ *   - userScrolled=true：用户自己滚动过（**任意方向**）。
+ *
+ * 少了第三条时，用户在生成期间往下滚会被每次渲染拽回气泡顶部，
+ * 表现就是「抽搐、卡在原地，生成完才能正常滚」。
+ */
+export function shouldPinDuringStreaming(params: {
+  autoScroll: boolean;
+  manualBottom: boolean;
+  userScrolled: boolean;
+}): boolean {
+  return params.autoScroll && !params.manualBottom && !params.userScrolled;
+}
+
+/**
  * 这一帧还要不要执行「钉住生成中的气泡」。
  *
  * requestAnimationFrame 是异步的：生成常常在两次渲染之间结束。

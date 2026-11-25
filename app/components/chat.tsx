@@ -115,6 +115,7 @@ import {
   getStreamingPinTarget,
   isScrollContentShort,
   prevPageIndex,
+  shouldPinDuringStreaming,
 } from "@/app/utils/chat-scroll";
 
 import dynamic from "next/dynamic";
@@ -648,6 +649,21 @@ function useScrollToBottom(
 
   /** 用户在流式期间主动点了「回到底部」：不再把他拽回气泡顶部 */
   const manualBottomRef = useRef(false);
+
+  /**
+   * 这一轮生成里，用户自己滚动过输入区。
+   *
+   * 桌面端钉住气泡顶部时，每次渲染都会把 scrollTop 拉回「气泡顶部」。
+   * 用户想往下看看新生成的内容时，这个拉力会把他拽回去 —— 表现就是
+   * 「生成期间往下滚会抽搐、卡在原地，生成完才正常」。
+   * 所以只要用户动过滚动条，这一轮就不再钉；下一轮发送时 resetFollow() 会清掉。
+   */
+  const userScrolledRef = useRef(false);
+
+  /** 由 onChatBodyScroll 在「确实是用户滚的」时调用 */
+  const notifyUserScroll = useCallback(() => {
+    userScrolledRef.current = true;
+  }, []);
   /**
    * 我们自己滚动到的目标位置。
    *
@@ -695,6 +711,7 @@ function useScrollToBottom(
   const resetFollow = useCallback(() => {
     manualBottomRef.current = false;
     programmaticTargetRef.current = null;
+    userScrolledRef.current = false;
     scrollDomToBottom();
   }, [scrollDomToBottom]);
 
@@ -734,6 +751,7 @@ function useScrollToBottom(
        */
       const el = dom.querySelector<HTMLElement>('[data-streaming="1"]');
       if (
+        userScrolledRef.current ||
         !canPinStreamingScroll({
           streaming: streamingRef.current,
           hasStreamingElement: !!el,
@@ -790,7 +808,16 @@ function useScrollToBottom(
       manualBottomRef.current = false;
       return;
     }
-    if (!autoScroll || manualBottomRef.current) return;
+    // 用户已经接管滚动（往上翻 / 点了回到底部 / 自己滚过）就不再钉
+    if (
+      !shouldPinDuringStreaming({
+        autoScroll,
+        manualBottom: manualBottomRef.current,
+        userScrolled: userScrolledRef.current,
+      })
+    ) {
+      return;
+    }
 
     pinStreamingMessageTop();
     // 故意不加依赖：它要在每次渲染后跟着流式内容走一遍
@@ -813,6 +840,8 @@ function useScrollToBottom(
     scrollToBottomManual,
     resetFollow,
     consumeProgrammaticScroll,
+    /** 告诉滚动逻辑「用户自己动过了」：这一轮不再钉顶部 */
+    notifyUserScroll,
   };
 }
 
@@ -1529,6 +1558,7 @@ function _Chat() {
     scrollToBottomManual,
     resetFollow,
     consumeProgrammaticScroll,
+    notifyUserScroll,
   } = useScrollToBottom(
     scrollRef,
     (isScrolledToBottom || isAttachWithTop) && !isTyping,
@@ -2303,6 +2333,12 @@ function _Chat() {
 
     // 用户自己动了滚动条：停掉“进入会话时补滚到底部”的重试，不跟他抢
     initialScrollCancelledRef.current = true;
+
+    // 位移足够大才算“用户真的滚了”：内容增长时浏览器自己夹一下 scrollTop
+    // 也会触发 scroll 事件，那种不该被当成用户操作（否则一生成就停止钉顶）
+    if (Math.abs(e.scrollTop - lastScrollTopRef.current) > 8) {
+      notifyUserScroll();
+    }
 
     const prevPageMsgIndex = prevPageIndex(msgRenderIndex, chatPageSize);
     const nextPageMsgIndex = msgRenderIndex + chatPageSize;
