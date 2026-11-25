@@ -1470,6 +1470,43 @@ function _Chat() {
   );
   // 老版本 iOS 上阻止列表滚到边缘后整页回弹
   usePreventOverscroll(scrollRef);
+
+  /**
+   * 进入会话时滚到底部。
+   *
+   * `_Chat` 是按 session.id 挂载的（见文件末尾的 key），所以每个会话只会跑一次。
+   *
+   * 为什么要“补几次”：首屏内容是渐进的——markdown 渲染、代码高亮、图片、
+   * mermaid 都会在之后几帧里继续把内容撑高；只滚一次的话经常停在半路，
+   * 表现就是「进对话随机停在中间」。这里每隔 150ms 再滚一次，最多 6 次，
+   * 用户一旦自己滚动就立即停止（不跟用户抢滚动条）。
+   */
+  const initialScrollCancelledRef = useRef(false);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let tries = 0;
+
+    const tick = () => {
+      if (initialScrollCancelledRef.current) return;
+      // 正在流式输出时不要抢滚动条：那种情况由「钉住/跟随」逻辑接管
+      const streamingNow = useChatStore
+        .getState()
+        .currentSession()
+        .messages.some((m) => m.streaming);
+      if (streamingNow) return;
+      scrollDomToBottom();
+      tries += 1;
+      if (tries < 6) timer = setTimeout(tick, 150);
+    };
+
+    tick();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+    // 每个会话只做一次首屏定位
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.id]);
+
   const [hitBottom, setHitBottom] = useState(true);
   const navigate = useNavigate();
   const [attachImages, setAttachImages] = useState<string[]>([]);
@@ -2196,6 +2233,9 @@ function _Chat() {
       lastScrollTopRef.current = e.scrollTop;
       return;
     }
+
+    // 用户自己动了滚动条：停掉“进入会话时补滚到底部”的重试，不跟他抢
+    initialScrollCancelledRef.current = true;
 
     const prevPageMsgIndex = prevPageIndex(msgRenderIndex, chatPageSize);
     const nextPageMsgIndex = msgRenderIndex + chatPageSize;
