@@ -1,6 +1,7 @@
 "use client";
 // azure and openai, using same models. so using same LLMApi.
 import { preProcessImageContent } from "@/app/utils/chat";
+import { normalizeTokenUsage } from "@/app/utils/token-usage";
 import { ApiPath, DEEPSEEK_BASE_URL, DeepSeek } from "@/app/constant";
 import {
   useAccessStore,
@@ -123,9 +124,16 @@ export class DeepSeekApi implements LLMApi {
       },
     };
 
+    const shouldStreamEarly = !!options.config.stream;
+
     const requestPayload: RequestPayload = {
       messages: filteredMessages,
       stream: options.config.stream,
+      /**
+       * 让服务端在结束块里带上 usage（DeepSeek 的 stream_options.include_usage）。
+       * 只能在 stream: true 时传，否则 API 直接 400。
+       */
+      ...(shouldStreamEarly ? { stream_options: { include_usage: true } } : {}),
       model: modelConfig.model,
       temperature: modelConfig.temperature,
       presence_penalty: modelConfig.presence_penalty,
@@ -176,6 +184,13 @@ export class DeepSeekApi implements LLMApi {
           (text: string, runTools: ChatMessageTool[]) => {
             // console.log("parseSSE", text, runTools);
             const json = JSON.parse(text);
+
+            // 结束块里带 usage（include_usage=true 时）
+            if (json.usage) {
+              const usage = normalizeTokenUsage(json.usage);
+              if (usage) options.onUsage?.(usage);
+            }
+
             const choices = json.choices as Array<{
               delta: {
                 content: string | null;
@@ -266,6 +281,8 @@ export class DeepSeekApi implements LLMApi {
         clearTimeout(requestTimeoutId);
 
         const resJson = await res.json();
+        const usage = normalizeTokenUsage(resJson?.usage);
+        if (usage) options.onUsage?.(usage);
         const message = this.extractMessage(resJson);
         options.onFinish(message, res);
       }

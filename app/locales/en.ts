@@ -110,6 +110,13 @@ const en: LocaleType = {
         `📚 ${sections} section(s) · ${tokens} tokens`,
       Truncated: "Section too long, truncated at a code-fence boundary",
     },
+    Usage: {
+      Prompt: "Input",
+      Completion: "Output",
+      Cached: "cached",
+      Reasoning: "reasoning",
+      Total: "Total",
+    },
     MessageEdit: {
       Title: "Edit this message",
       Confirm: "Save",

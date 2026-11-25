@@ -17,6 +17,7 @@ import { ChatControllerPool } from "../client/controller";
 import { clearBackups } from "../utils/backup";
 import { showToast } from "../components/ui-lib";
 import { collectUploadedAttachments } from "../utils/attachment-rules";
+import type { TokenUsage } from "../utils/token-usage";
 import {
   DEFAULT_INPUT_TEMPLATE,
   DEFAULT_MODELS,
@@ -110,6 +111,14 @@ export type ChatMessage = RequestMessage & {
    * 只记 id + 展示用的元信息：真正的资料正文在发请求时按 id 现取，
    * 拼成一条 system 消息（不写进用户气泡，也不占存储）。
    */
+  /** 这条回复的 token 用量（服务端返回的 usage，不是本地估算） */
+  usage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+    cachedTokens?: number;
+    reasoningTokens?: number;
+  };
   retrieval?: {
     sections: Array<{
       /** 知识库片段 id */
@@ -876,10 +885,18 @@ export const useChatStore = createPersistStore(
               if (message) {
                 botMessage.content = message;
                 botMessage.date = new Date().toLocaleString();
-                options.onFinishMessage?.(botMessage);
               }
               flush();
               ChatControllerPool.remove(session.id, trackingId);
+              options.onFinishMessage?.(botMessage);
+            },
+            /**
+             * token 用量：服务端在结束块里给的统计。
+             * 直接挂在消息上，气泡下方的时间旁边展示。
+             */
+            onUsage(usage: TokenUsage) {
+              botMessage.usage = usage;
+              flush();
             },
             onBeforeTool(tool: ChatMessageTool) {
               (botMessage.tools = botMessage?.tools || []).push(tool);

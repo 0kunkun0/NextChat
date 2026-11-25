@@ -1038,3 +1038,8 @@ pre {
   flex: 0 0 auto;
   opacity: 0.6;
 }
+/* 消息时间后面的 token 用量 */
+.chat-message-usage {
+  opacity: 0.75;
+  cursor: help;
+}

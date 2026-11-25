@@ -75,6 +75,10 @@ export interface SpeechOptions {
   onController?: (controller: AbortController) => void;
 }
 
+import type { TokenUsage } from "../utils/token-usage";
+
+export type { TokenUsage };
+
 export interface ChatOptions {
   messages: RequestMessage[];
   config: LLMConfig;
@@ -83,6 +87,11 @@ export interface ChatOptions {
   onFinish: (message: string, responseRes: Response) => void;
   onError?: (err: Error) => void;
   onController?: (controller: AbortController) => void;
+  /**
+   * token 用量（DeepSeek 的 chat/completions 与 responses 接口都会给）。
+   * 流式时最后一次回调里给完整值。
+   */
+  onUsage?: (usage: TokenUsage) => void;
   onBeforeTool?: (tool: ChatMessageTool) => void;
   onAfterTool?: (tool: ChatMessageTool) => void;
   /**

@@ -95,6 +95,7 @@ import {
   rebuildContent,
 } from "../utils/attachment-rules";
 import { resolveEditedMessage } from "../utils/context-prompt";
+import { formatTokenDetail, formatTokenTotal } from "../utils/token-usage";
 import { AttachmentChips, MessageAttachments } from "./attachments";
 import type { ChatAttachment } from "../store/chat";
 
@@ -3440,6 +3441,22 @@ function _Chat() {
                             {isContext
                               ? Locale.Chat.IsContext
                               : message.date.toLocaleString()}
+                            {/* 服务端返回的 token 用量（悬停看输入/输出明细） */}
+                            {!isContext && message.usage?.totalTokens ? (
+                              <span
+                                className="chat-message-usage"
+                                title={formatTokenDetail(message.usage, {
+                                  prompt: Locale.Chat.Usage.Prompt,
+                                  completion: Locale.Chat.Usage.Completion,
+                                  cached: Locale.Chat.Usage.Cached,
+                                  reasoning: Locale.Chat.Usage.Reasoning,
+                                  total: Locale.Chat.Usage.Total,
+                                })}
+                              >
+                                {" · "}
+                                {formatTokenTotal(message.usage.totalTokens)}
+                              </span>
+                            ) : null}
                           </div>
                         </div>
                       </div>

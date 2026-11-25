@@ -105,6 +105,13 @@ const cn = {
         `📚 知识库 ${sections} 节 · ${tokens} token`,
       Truncated: "本节过长，已按代码块边界截断",
     },
+    Usage: {
+      Prompt: "输入",
+      Completion: "输出",
+      Cached: "缓存命中",
+      Reasoning: "思维链",
+      Total: "合计",
+    },
     MessageEdit: {
       Title: "编辑这条消息",
       Confirm: "保存",
