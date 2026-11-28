@@ -651,7 +651,7 @@ const en: LocaleType = {
         ChunkSize: {
           Title: (size: number) => `Chunk size: ${size} KB`,
           SubTitle:
-            "Sessions larger than this are uploaded in chunks (16KB ~ 1024KB). Note: values above ~2MB can be written to Upstash but cannot be read back, so the cap stays at 1MB.",
+            "Sessions larger than this are uploaded in chunks (16KB ~ 1024KB). For parallel speed-up the effective chunk size never exceeds 256KB — one 1MB request can take 10+ seconds on a slow link, while a few parallel chunks are much faster.",
         },
 
         UpStash: {

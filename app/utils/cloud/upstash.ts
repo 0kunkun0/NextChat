@@ -48,6 +48,21 @@ const DEFAULT_CHUNK_KB = 1024;
  * 请求上限是 10MB，这里保守取 1MB，既明显减少请求数又不至于顶到上限。
  */
 const PIPELINE_MAX_CHARS = 1_000_000;
+
+/**
+ * 单个上传请求的自动上限（字符数）。
+ *
+ * 用户实测：一次 938K 字符的会话，走代理上行只有 82KB/s，一个请求要 11 秒。
+ * 视分块设置而定，这种大 payload 会落到「单个 set 请求」里，速度完全被
+ * 单连接带宽卡死。超过这个阈值就自动切片，多个分片并发上传
+ * （并发数 = UPLOAD_CONCURRENCY），慢链路上能快几倍。
+ *
+ * 注意：只影响「大到不该用一个请求发」的项；分块大小设置比它小时以设置为准。
+ */
+const AUTO_SPLIT_BYTES = 256 * 1024;
+
+/** 索引原文缓存（模块级，跨 client 共享）：key = endpoint|username|v2-index */
+const moduleIndexCache = new Map<string, { at: number; raw: string | null }>();
 /**
  * 压缩过的内容是 base64（纯 ASCII，1 字符≈1 字节），
  * 同样的上限可以塞更多，请求数能少几倍。
@@ -357,7 +372,13 @@ export function createUpstashClient(
   const signal = options?.signal;
 
   /** 上传时的分片大小（字节）：设置里可调，范围 16KB ~ 1024KB */
-  const chunkBytes = resolveChunkBytes(config.chunkSizeKB);
+  const configuredChunkBytes = resolveChunkBytes(config.chunkSizeKB);
+  /**
+   * 实际使用的分片大小：不超过 AUTO_SPLIT_BYTES。
+   * 设置里允许调到 1MB，但一个 1MB 的 POST 在慢链路上就是十几秒，
+   * 切成 4 片并发发出去明显更快。
+   */
+  const chunkBytes = Math.min(configuredChunkBytes, AUTO_SPLIT_BYTES);
   const chunkSizeKB = Math.round(chunkBytes / 1024);
 
   /** 本次同步发出的 HTTP 请求数 / 上行字符数，用于排查“到底慢在哪” */
@@ -375,7 +396,28 @@ export function createUpstashClient(
    * 10 秒内复用同一份结果即可，写索引时立即失效。
    */
   const INDEX_CACHE_MS = 10_000;
-  let indexRawCache: { at: number; raw: string | null } | null = null;
+  /**
+   * 索引原文缓存：**跨 client 共享**。
+   *
+   * 一次「上传」会先后建好几个 client（确认加密参数一个、真正上传一个），
+   * 每个 client 各带一份缓存，于是索引被读两三次，每次 1~2 秒。
+   * 这里按「endpoint + indexKey」放到模块级，几个 client 共用一份。
+   */
+  const indexRawCache = (() => {
+    const globalKey = () =>
+      `${config.endpoint ?? ""}|${config.username ?? ""}|v2-index`;
+    return {
+      get(): { at: number; raw: string | null } | null {
+        return moduleIndexCache.get(globalKey()) ?? null;
+      },
+      set(value: { at: number; raw: string | null }) {
+        moduleIndexCache.set(globalKey(), value);
+      },
+      clear() {
+        moduleIndexCache.delete(globalKey());
+      },
+    };
+  })();
 
   /** 实际要上传的原始 JSON 长度 / 压缩后长度，用来算压缩比 */
   let rawCharsToUpload = 0;
@@ -759,6 +801,7 @@ export function createUpstashClient(
         return { chunked: false };
       }
 
+      const partsStartedAt = Date.now();
       let cursor = 0;
       const worker = async () => {
         while (cursor < parts.length) {
@@ -774,6 +817,14 @@ export function createUpstashClient(
       );
       await this.redisSet(`${key}-n`, String(parts.length));
       chunkKeysWritten += parts.length + 1;
+
+      console.info("[Upstash] chunked write", {
+        key,
+        parts: parts.length,
+        partKB: Math.round(chunkBytes / 1024),
+        ms: Date.now() - partsStartedAt,
+        chars: value.length,
+      });
 
       // 写完核对分片数：任何一个分片没写成功，这里会立刻报错，
       // 而不是写进索引、让之后的增量误以为「已经同步过了」
@@ -1927,16 +1978,17 @@ export function createUpstashClient(
      */
     async readIndexRaw(): Promise<string | null> {
       const now = Date.now();
-      if (indexRawCache && now - indexRawCache.at < INDEX_CACHE_MS) {
-        return indexRawCache.raw;
+      const cached = indexRawCache.get();
+      if (cached && now - cached.at < INDEX_CACHE_MS) {
+        return cached.raw;
       }
       const raw = (await this.redisGet(indexKey).catch(() => null)) ?? null;
-      indexRawCache = { at: now, raw };
+      indexRawCache.set({ at: now, raw });
       return raw;
     },
 
     invalidateIndexCache() {
-      indexRawCache = null;
+      indexRawCache.clear();
     },
 
     /**

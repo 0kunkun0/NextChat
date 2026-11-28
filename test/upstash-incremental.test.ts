@@ -620,7 +620,7 @@ describe("upstash incremental upload", () => {
   });
 
   test("stale chunks are deleted when the content shrinks", async () => {
-    // 关掉压缩，保证一定按 1MB 切片
+    // 关掉压缩，保证一定按「实际分片大小」切片
     const savedCompression = (globalThis as any).CompressionStream;
     const savedDecompression = (globalThis as any).DecompressionStream;
     delete (globalThis as any).CompressionStream;
@@ -628,14 +628,16 @@ describe("upstash incremental upload", () => {
 
     try {
       const server = installFakeUpstash();
-      // 约 2.5MB → 3 片
+      // 约 2.5MB → 会被切成多片（每片不超过 AUTO_SPLIT_BYTES）
       await client.upload(makeState("word ".repeat(500_000)));
-      expect(server.kv.has("backup-v2-s-s1-c2")).toBe(true);
+      const countBig = Number(server.kv.get("backup-v2-s-s1-n"));
+      expect(countBig).toBeGreaterThan(3);
 
-      // 缩到约 1.25MB → 2 片，第 3 片应该被清掉
+      // 缩到约 1.25MB：片数应该变少，多出来的分片要被清掉
       await client.upload(makeState("word ".repeat(250_000)));
-      expect(server.kv.has("backup-v2-s-s1-c1")).toBe(true);
-      expect(server.kv.has("backup-v2-s-s1-c2")).toBe(false);
+      const countSmall = Number(server.kv.get("backup-v2-s-s1-n"));
+      expect(countSmall).toBeLessThan(countBig);
+      expect(server.kv.has(`backup-v2-s-s1-c${countSmall}`)).toBe(false);
 
       // 再缩到不需要分片：所有分片和 -n 都应删除
       await client.upload(makeState("tiny"));
