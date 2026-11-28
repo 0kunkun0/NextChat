@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 
 import Locale from "../locales";
 import { IconButton } from "./button";
@@ -8,6 +8,7 @@ import CancelIcon from "../icons/cancel.svg";
 import AddIcon from "../icons/add.svg";
 import DeleteIcon from "../icons/delete.svg";
 import { createPortalLayer } from "../utils/portal";
+import { useAppConfig } from "../store/config";
 import {
   ACCEPT_FILE,
   MAX_ATTACHMENTS,
@@ -47,6 +48,8 @@ type DialogProps = {
 
 function MessageEditDialog(props: DialogProps) {
   const { message } = props;
+  // 和聊天输入框一样，跟随「设置 → 字体大小 / 字体」
+  const config = useAppConfig();
   const isAssistant = message.role === "assistant";
   const isUser = message.role === "user";
 
@@ -137,7 +140,13 @@ function MessageEditDialog(props: DialogProps) {
           />,
         ]}
       >
-        <div className="message-edit">
+        <div
+          className="message-edit"
+          style={{
+            fontSize: config.fontSize,
+            fontFamily: config.fontFamily || undefined,
+          }}
+        >
           <textarea
             className="message-edit-text"
             value={text}

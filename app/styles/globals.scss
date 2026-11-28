@@ -981,7 +981,8 @@ pre {
   padding: 8px 10px;
   background-color: var(--white);
   color: var(--black);
-  font-size: 13px;
+  /* 字号 / 字体由外层 style（config.fontSize / fontFamily）决定 */
+  font-size: inherit;
   line-height: 1.6;
   font-family: inherit;
 }
@@ -990,12 +991,13 @@ pre {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  /* 用 em 跟着外层字号缩放，而不是写死 13px */
+  font-size: 0.93em;
   cursor: pointer;
 }
 
 .message-edit-hint {
-  font-size: 11px;
+  font-size: 0.8em;
   opacity: 0.65;
 }
 
@@ -1013,12 +1015,12 @@ pre {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 13px;
+  font-size: 0.93em;
   gap: 8px;
 }
 
 .message-edit-empty {
-  font-size: 12px;
+  font-size: 0.86em;
   opacity: 0.6;
   padding: 6px 0;
 }
@@ -1036,7 +1038,7 @@ pre {
   border: var(--border-in-light);
   border-radius: 8px;
   padding: 6px 8px;
-  font-size: 12px;
+  font-size: 0.86em;
 }
 
 .message-edit-item-name {
