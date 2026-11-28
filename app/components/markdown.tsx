@@ -316,6 +316,60 @@ function CustomCode(props: {
   );
 }
 
+/**
+ * 段落：`dir="auto"` 让 RTL 文本也能正确排版。
+ *
+ * ⚠️ 这些组件必须是**模块级常量**。
+ *
+ * 以前写成内联箭头函数（`components={{ p: (p) => <p {...p} /> }}`），
+ * 每次渲染都是新的函数引用 → React 认为「组件类型变了」→ 整棵子树卸载重挂。
+ * 流式输出时每个 token 都重挂一次，于是：
+ *   - 表格 / 代码块的横向滚动位置被重置（看起来“拖不动”）；
+ *   - 正在进行的拖拽、文本选中被打断。
+ */
+const MarkdownParagraph = (props: any) => <p {...props} dir="auto" />;
+
+/**
+ * 表格外包一层可横向滚动的容器：移动端不再把表格压成屏幕宽度，
+ * 而是像 GitHub 那样左右滑动查看。
+ */
+const MarkdownTable = ({ node, ...tableProps }: any) => (
+  <div className="markdown-table-wrapper">
+    <table {...tableProps} />
+  </div>
+);
+
+/** 链接：音频 / 视频直接内嵌播放，站内锚点同窗口跳转 */
+const MarkdownAnchor = (props: any) => {
+  const href = props.href || "";
+  if (/\.(aac|mp3|opus|wav)$/.test(href)) {
+    return (
+      <figure>
+        <audio controls src={href}></audio>
+      </figure>
+    );
+  }
+  if (/\.(3gp|3g2|webm|ogv|mpeg|mp4|avi)$/.test(href)) {
+    return (
+      <video controls width="99.9%">
+        <source src={href} />
+      </video>
+    );
+  }
+  const isInternal = /^\/#/i.test(href);
+  const target = isInternal ? "_self" : props.target ?? "_blank";
+  return <a {...props} target={target} />;
+};
+
+/** 稳定引用：react-markdown 每次渲染都拿它做类型比对，不能每次新建 */
+const markdownComponents = {
+  pre: PreCode,
+  code: CustomCode,
+  p: MarkdownParagraph,
+  table: MarkdownTable,
+  a: MarkdownAnchor,
+};
+
 function _MarkDownContent(props: { content: string; streaming?: boolean }) {
   /**
    * 流式时按「上次渲染耗时」节流：每个 token 都整段重新解析会把低端机主线程堵死，
@@ -346,38 +400,7 @@ function _MarkDownContent(props: { content: string; streaming?: boolean }) {
       // 代码高亮改成在 CustomCode 里按语言动态加载（见 utils/highlight-lazy），
       // 不再用 rehype-highlight：它会把 highlight.js 全部语言打进首屏包
       rehypePlugins={[RehypeKatex]}
-      components={{
-        pre: PreCode,
-        code: CustomCode,
-        p: (pProps) => <p {...pProps} dir="auto" />,
-        // 表格外包一层可横向滚动的容器：移动端不再把表格压成屏幕宽度，
-        // 而是像 GitHub 那样左右滑动查看
-        table: ({ node, ...tableProps }) => (
-          <div className="markdown-table-wrapper">
-            <table {...tableProps} />
-          </div>
-        ),
-        a: (aProps) => {
-          const href = aProps.href || "";
-          if (/\.(aac|mp3|opus|wav)$/.test(href)) {
-            return (
-              <figure>
-                <audio controls src={href}></audio>
-              </figure>
-            );
-          }
-          if (/\.(3gp|3g2|webm|ogv|mpeg|mp4|avi)$/.test(href)) {
-            return (
-              <video controls width="99.9%">
-                <source src={href} />
-              </video>
-            );
-          }
-          const isInternal = /^\/#/i.test(href);
-          const target = isInternal ? "_self" : aProps.target ?? "_blank";
-          return <a {...aProps} target={target} />;
-        },
-      }}
+      components={markdownComponents}
     >
       {escapedContent}
     </ReactMarkdown>

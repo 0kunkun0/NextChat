@@ -3346,8 +3346,12 @@ function _Chat() {
                             </div>
                           )}
                           <div className={styles["chat-message-item"]}>
+                            {/*
+                              不要给 Markdown 加 key="loading"/"done"：
+                              生成结束的一瞬间换 key 会把整棵 markdown 卸载重挂，
+                              表格 / 代码块的横向滚动位置被重置。内容变化本来就会触发重渲染。
+                            */}
                             <Markdown
-                              key={message.streaming ? "loading" : "done"}
                               content={getMessageTextContent(message)}
                               loading={
                                 (message.preview || message.streaming) &&
