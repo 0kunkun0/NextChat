@@ -3,6 +3,8 @@
 // 1. invoke('stream_fetch', {url, method, headers, body}), get response with headers.
 // 2. listen event: `stream-response` multi times to get body
 
+import { toBufferSource } from "./bytes";
+
 type ResponseEvent = {
   id: number;
   payload: {
@@ -56,7 +58,7 @@ export function fetch(url: string, options?: RequestInit): Promise<Response> {
           }
           if (chunk) {
             writer.ready.then(() => {
-              writer.write(new Uint8Array(chunk));
+              writer.write(toBufferSource(new Uint8Array(chunk)));
             });
           } else if (status === 0) {
             // end of body

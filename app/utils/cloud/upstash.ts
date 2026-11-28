@@ -2,6 +2,7 @@ import { gzipSync, gunzipSync, strToU8, strFromU8 } from "fflate";
 import { STORAGE_KEY, StoreKey } from "@/app/constant";
 import { SyncStore } from "@/app/store/sync";
 import { chunks, hashString } from "../format";
+import { toBufferSource } from "../bytes";
 
 export type UpstashConfig = SyncStore["upstash"];
 export type UpStashClient = ReturnType<typeof createUpstashClient>;
@@ -154,7 +155,7 @@ async function compressText(text: string): Promise<string> {
   const stream = new CompressionStream("gzip");
   const writer = stream.writable.getWriter();
   const writing = (async () => {
-    await writer.write(new TextEncoder().encode(text));
+    await writer.write(toBufferSource(new TextEncoder().encode(text)));
     await writer.close();
   })();
   const bytes = await readAll(stream.readable);
@@ -170,7 +171,7 @@ async function decompressText(base64: string): Promise<string> {
   const stream = new DecompressionStream("gzip");
   const writer = stream.writable.getWriter();
   const writing = (async () => {
-    await writer.write(base64ToBytes(base64));
+    await writer.write(toBufferSource(base64ToBytes(base64)));
     await writer.close();
   })();
   const bytes = await readAll(stream.readable);
