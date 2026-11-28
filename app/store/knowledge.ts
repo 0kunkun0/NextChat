@@ -37,7 +37,11 @@ type KnowledgeState = {
   index: KnowledgeIndex | null;
   /** 索引对应的文档签名，文档变动时失效 */
   indexSignature: string;
-  refresh: () => Promise<void>;
+  /**
+   * 刷新文档列表（必要时重建检索索引）。
+   * @param options.rebuildIndex false 时只更新文档列表，索引留到第一次检索再建
+   */
+  refresh: (options?: { rebuildIndex?: boolean }) => Promise<void>;
   importFiles: (files: File[]) => Promise<{ imported: number; chunks: number }>;
   remove: (id: string) => Promise<void>;
   clear: () => Promise<void>;
@@ -103,11 +107,25 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
   index: null,
   indexSignature: "",
 
-  async refresh() {
+  async refresh(options = {}) {
+    const rebuildIndex = options.rebuildIndex !== false;
     set({ loading: true });
     try {
       const docs = await listDocs();
       set({ docs });
+
+      if (!rebuildIndex) {
+        /**
+         * 只更新列表：把索引标记为失效，等真正检索时再建。
+         *
+         * 下载流程以前会立刻 loadAllChunks（1.6MB）+ buildIndex（~170ms），
+         * 用户只是想拿回聊天记录，没必要在主线程上先算一遍 BM25。
+         */
+        cachedChunks = [];
+        set({ index: null, indexSignature: "" });
+        return;
+      }
+
       const signature = signatureOf(docs);
       if (signature !== get().indexSignature) {
         cachedChunks = docs.length > 0 ? await loadAllChunks() : [];

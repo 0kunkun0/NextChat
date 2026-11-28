@@ -1,4 +1,5 @@
 import { listDocs, loadAllChunks, replaceAllFromSync } from "./store";
+import { hashString } from "../format";
 import { normalizeKnowledgePayload, type KnowledgePayload } from "./payload";
 
 export { normalizeKnowledgePayload, type KnowledgePayload } from "./payload";
@@ -24,13 +25,31 @@ export const KNOWLEDGE_SYNC_KEY = "__knowledge__";
 export async function exportKnowledgeJson(): Promise<string> {
   const docs = await listDocs();
   const chunks = docs.length > 0 ? await loadAllChunks() : [];
+  /**
+   * 注意：这里**不能**带时间戳。
+   *
+   * 上传时索引里存的哈希是这份 JSON 的哈希，下载时本地再算一次比对。
+   * 以前 payload 里有 exportedAt: Date.now()，每次算出来的哈希都不同，
+   * 于是「知识库没变」也会被判成变了 —— 每次下载都要重传 600KB + 重写 1.6MB
+   * 到 IndexedDB + 重建索引。
+   */
   const payload: KnowledgePayload = {
     version: 1,
-    exportedAt: Date.now(),
     docs,
     chunks,
   };
   return JSON.stringify(payload);
+}
+
+/**
+ * 知识库内容的稳定哈希：用于下载前的「有没有变」比对。
+ *
+ * 必须和上传时写进索引的哈希同算法 —— 上传走的是 utils/format 里的 hashString，
+ * 这里直接复用同一个函数，避免两边实现漂移导致“永远判成变了”。
+ */
+export async function hashKnowledge(): Promise<string> {
+  const json = await exportKnowledgeJson();
+  return hashString(json);
 }
 
 /**

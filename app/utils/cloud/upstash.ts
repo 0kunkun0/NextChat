@@ -11,7 +11,7 @@ export type UpStashClient = ReturnType<typeof createUpstashClient>;
  * 原来的实现是一片一片串行 await，跨洋链路上 N 片就是 N 个往返；
  * 适度并发（不要太高，否则弱网下反而更慢）能把总耗时压到接近单次往返。
  */
-const UPLOAD_CONCURRENCY = 6;
+const UPLOAD_CONCURRENCY = 8;
 /** 单个 value 超过这个字节数才切片（默认值；实际可在设置里调） */
 const CHUNK_BYTES = 1000 * 1000;
 /**
@@ -1506,6 +1506,11 @@ export function createUpstashClient(
         decode?: (json: string) => Promise<string>;
         /** 会话 JSON → 增量哈希（加密时用 HMAC，必须和上传时一致） */
         hashSession?: (json: string) => Promise<string>;
+        /**
+         * 额外 store（比如知识库）的本地哈希。
+         * 和索引里的 h 一致就跳过下载 —— 知识库有 1~2MB，白白重传很费时间。
+         */
+        extraStoreHashes?: Record<string, string>;
       },
     ) {
       const startedAt = Date.now();
@@ -1701,6 +1706,11 @@ export function createUpstashClient(
           const stores: Record<string, any> = {};
           const storeToFetch = remoteStores.filter((item) => {
             if (forceFull) return true;
+            // 额外 store（知识库）：本地哈希由调用方算好传进来
+            const extra = options?.extraStoreHashes?.[item.id];
+            if (extra !== undefined) {
+              return !item.h || extra !== item.h;
+            }
             const local = localState?.[item.id];
             if (!item.h || !local) return true;
             return hashString(JSON.stringify(local)) !== item.h;

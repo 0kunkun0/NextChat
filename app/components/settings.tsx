@@ -103,6 +103,7 @@ import { RemoteBackupImportSection } from "./remote-backup-import";
 import {
   KNOWLEDGE_SYNC_KEY,
   exportKnowledgeJson,
+  hashKnowledge,
   importKnowledgeJson,
 } from "../utils/knowledge/sync";
 import { useKnowledgeStore } from "../store/knowledge";
@@ -843,7 +844,8 @@ function SyncItems() {
     }
     try {
       const { docs, chunks } = await importKnowledgeJson(payload);
-      await useKnowledgeStore.getState().refresh();
+      // 先不建索引：等第一次检索（或打开片段选择器）时再算
+      await useKnowledgeStore.getState().refresh({ rebuildIndex: false });
       console.info("[Knowledge] restored from cloud", { docs, chunks });
     } catch (e) {
       console.warn("[Knowledge] restore from cloud failed", e);
@@ -862,6 +864,12 @@ function SyncItems() {
         signal: controller.signal,
       });
 
+      const startedAt = Date.now();
+      const endedAt: Record<string, number> = {};
+      const mark = (key: string) => {
+        endedAt[key] = Date.now() - startedAt;
+      };
+
       const local = getLocalAppState();
       // 下载会用云端整体覆盖本地：先自动存一份当前内容，
       // 手滑点错了还能在「本地备份」里换回来
@@ -869,10 +877,24 @@ function SyncItems() {
         console.warn("[Backup] auto backup before download failed", e),
       );
       refreshBackups();
+      mark("backup");
 
       // 云端可能是加密的：先确认密钥（必要时弹窗要密码）
       const bundle = await ensureBundle(client);
       if (bundle) syncStore.setEncryption({ enabled: true, unlocked: true });
+      mark("bundle");
+
+      /**
+       * 知识库的本地哈希：和云端索引里的 h 一致就让 download 跳过它。
+       *
+       * 知识库有 1~2MB（gzip 后 ~600KB），以前每次下载都会重传一遍，
+       * 还要写 1.6MB 到 IndexedDB、重建 BM25 索引 —— 十几秒里很可能有它一份。
+       */
+      const knowledgeHash = await hashKnowledge().catch((e) => {
+        console.warn("[Knowledge] hash failed, will download it", e);
+        return undefined;
+      });
+      mark("knowledgeHash");
 
       // 把本地状态传进去：和远端哈希一致的项目直接跳过，不再下载
       const remote = await client.download(
@@ -884,21 +906,36 @@ function SyncItems() {
           hashSession: bundle
             ? (json: string) => keyedHash(bundle.macKey, json)
             : undefined,
+          extraStoreHashes: knowledgeHash
+            ? { [KNOWLEDGE_SYNC_KEY]: knowledgeHash }
+            : undefined,
         },
       );
       if (!remote) {
         showToast(Locale.Settings.Sync.NoRemoteData);
         return;
       }
+      mark("transfer");
+
       // 知识库单独落到 IndexedDB（它不是 AppState 的一部分）
+      const skippedKnowledge = remote[KNOWLEDGE_SYNC_KEY] === undefined;
       await applyRemoteKnowledge(remote);
+      mark("knowledgeImport");
+
       // 只有完整下载成功才会覆盖本地数据
       setLocalAppState(remote);
+      mark("apply");
       syncStore.markDownloadTime();
       // 覆盖后本地 == 云端，把这份状态记为下次同步的基线
       syncStore.markSynced(
         buildSyncedHashes((remote as any)?.[StoreKey.Chat]?.sessions ?? []),
       );
+      console.info("[Sync] download timing", {
+        ...endedAt,
+        total: Date.now() - startedAt,
+        skippedKnowledge,
+        forceFull,
+      });
       showToast(Locale.Settings.Sync.DownloadSuccess);
     } catch (e) {
       if (isAbortError(e)) {

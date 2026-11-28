@@ -14,7 +14,8 @@ import type { DocMeta } from "./store";
 
 export type KnowledgePayload = {
   version: 1;
-  exportedAt: number;
+  /** 导出时间（只作参考，不参与哈希；导出时不写这个字段） */
+  exportedAt?: number;
   docs: DocMeta[];
   chunks: KnowledgeChunk[];
 };

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useMemo } from "react";
 
 import Locale from "../locales";
 import { useKnowledgeStore } from "../store/knowledge";
@@ -26,11 +26,11 @@ export function KnowledgeBadge(props: {
   pinnedIds?: string[];
 }) {
   const index = useKnowledgeStore((state) => state.index);
-  const refresh = useKnowledgeStore((state) => state.refresh);
 
-  useEffect(() => {
-    if (!index) void refresh();
-  }, [index, refresh]);
+  /**
+   * 这里**不要**主动 refresh：那会为了展示一个标记就把 1.6MB 分块读出来、
+   * 重算一遍 BM25 索引（下载刚结束时最贵）。索引还没建时直接用消息里存的数字。
+   */
 
   /**
    * 勾选了片段就以勾选为准（这是「用户点名要注入的」），
