@@ -66,6 +66,13 @@ type RemoteItem = {
   gz?: boolean;
   /** 存储内容的字符数，批量读的预算用 */
   size?: number;
+  /**
+   * 分片数量（chunked 时有效）。
+   *
+   * 记在索引里，下载时就能**一次 pipeline 读完所有分片**；
+   * 否则要先读 `-n` 再逐片并发 GET —— 高延迟网络下 N 个往返就是十几秒。
+   */
+  chunks?: number;
 };
 
 /**
@@ -735,7 +742,10 @@ export function createUpstashClient(
      * 多出来的 `-cN` 如果不删，云端就会一直躺着一堆没人引用的旧分片
      * （缓存里的块数看着就像翻倍）。
      */
-    async writeValue(key: string, value: string): Promise<boolean> {
+    async writeValue(
+      key: string,
+      value: string,
+    ): Promise<{ chunked: boolean; chunks?: number }> {
       const parts = Array.from(chunks(value, chunkBytes));
 
       // 旧的分片数（没有就是 0 / NaN）
@@ -746,7 +756,7 @@ export function createUpstashClient(
         if (previousCount > 0) {
           await this.dropChunks(key, 0, previousCount);
         }
-        return false;
+        return { chunked: false };
       }
 
       let cursor = 0;
@@ -778,7 +788,7 @@ export function createUpstashClient(
       if (previousCount > parts.length) {
         await this.dropChunks(key, parts.length, previousCount);
       }
-      return true;
+      return { chunked: true, chunks: parts.length };
     },
 
     /**
@@ -837,30 +847,94 @@ export function createUpstashClient(
       await this.deleteKeys(keys);
     },
 
-    /** 读一个 value：单 key 或按索引里记录的分片数拼接 */
-    async readValue(key: string, chunked: boolean): Promise<string | null> {
+    /**
+     * 读一个 value：单 key，或者按分片拼接。
+     *
+     * 分片数优先取索引里的 `chunks`（上传时记下的），拿到就能用一个
+     * pipeline 请求读完所有分片。以前是「先 GET -n，再 N 个并发 GET」：
+     * 在直连 Upstash、单请求往返 1~2 秒的网络下，一个几十片的会话
+     * 光握手/往返就要十几二十秒。
+     *
+     * @param chunked 索引标记为分片存储
+     * @param chunksFromIndex 索引里记录的分片数（老索引没有）
+     */
+    async readValue(
+      key: string,
+      chunked: boolean,
+      chunksFromIndex?: number,
+    ): Promise<string | null> {
       if (!chunked) {
         return (await this.redisGet(key)) ?? null;
       }
-      const count = Number(await this.redisGet(`${key}-n`));
-      if (!Number.isInteger(count) || count <= 0) {
-        // 索引说「已切片」但读不到 -n：有可能实际是单 key 存的
-        // （索引和数据的元信息对不上时会出现），回退读一次，别直接把会话丢了
+
+      let count = Number(chunksFromIndex) || 0;
+      let fromIndex = Number.isInteger(count) && count > 0;
+
+      if (!fromIndex) {
+        // 老索引没记分片数：只能先问一下 -n
+        count = Number(await this.redisGet(`${key}-n`));
+        if (!Number.isInteger(count) || count <= 0) {
+          // 索引说「已切片」但读不到 -n：有可能实际是单 key 存的
+          // （索引和数据的元信息对不上时会出现），回退读一次，别直接把会话丢了
+          const single = (await this.redisGet(key)) ?? null;
+          if (single !== null) {
+            console.warn(
+              "[Upstash] index says chunked but -n missing, read as single key:",
+              key,
+            );
+          }
+          return single;
+        }
+        fromIndex = false;
+      }
+
+      const keys = new Array(count).fill(0).map((_, i) => `${key}-c${i}`);
+      const startedAt = Date.now();
+
+      /**
+       * 分组合并成 pipeline 请求：
+       *   - 每 20 条一个请求（和上传批次一致，避免单个响应体过大）；
+       *   - 组间并发 3，别一下把连接池打满。
+       * 以前是「1 次 GET -n + N 次 GET」，N 大、单次往返又慢时就是十几秒。
+       */
+      const groups: string[][] = [];
+      for (let i = 0; i < keys.length; i += PIPELINE_MAX_COMMANDS) {
+        groups.push(keys.slice(i, i + PIPELINE_MAX_COMMANDS));
+      }
+
+      const merged = new Map<string, string>();
+      await runLimited(groups, 3, async (group) => {
+        const map = await this.readBatch(
+          group.map((item) => ({ key: item, size: 0 })),
+        );
+        map.forEach((value, item) => merged.set(item, value));
+      });
+
+      const parts = keys.map((item) => merged.get(item));
+      if (parts.some((p) => typeof p !== "string")) {
+        /**
+         * 分片读不到：索引说「已切片」，但数据可能实际是单 key 存的
+         * （索引和数据的元信息对不上时会出现），回退读一次，别直接把会话丢了。
+         */
         const single = (await this.redisGet(key)) ?? null;
         if (single !== null) {
           console.warn(
-            "[Upstash] index says chunked but -n missing, read as single key:",
+            "[Upstash] chunks missing but single key exists, read as single key:",
             key,
           );
         }
         return single;
       }
 
-      const parts = await Promise.all(
-        new Array(count).fill(0).map((_, i) => this.redisGet(`${key}-c${i}`)),
-      );
-      if (parts.some((p) => p === null || p === undefined)) return null;
-      return parts.join("");
+      const joined = parts.join("");
+      console.info("[Upstash] chunked read", {
+        key,
+        chunks: count,
+        chunksFromIndex: fromIndex,
+        ms: Date.now() - startedAt,
+        chars: joined.length,
+      });
+      return joined;
     },
 
     /**
@@ -1331,10 +1405,9 @@ export function createUpstashClient(
           // 用实际写入结果回填 chunked：中文按字符数判断会错，
           // 索引说“没切片”但实际写成了分片，读端就永远读不到最新内容
           try {
-            entry.item.chunked = await this.writeValue(
-              entry.key,
-              entry.payload,
-            );
+            const written = await this.writeValue(entry.key, entry.payload);
+            entry.item.chunked = written.chunked;
+            entry.item.chunks = written.chunks;
           } catch (e: any) {
             // 带上 key，日志里能看出是哪个会话卡住了（否则只有一句“上传失败”）
             throw new Error(
@@ -1635,6 +1708,9 @@ export function createUpstashClient(
           const reportRead = () => onProgress?.(readDone, readTotal);
           reportRead();
 
+          const dataStartedAt = Date.now();
+          const requestsBeforeRead = requestCount;
+
           const readBatches = groupBatchesByEncoding(
             smallItems,
             (item) => item.size ?? 0,
@@ -1651,9 +1727,11 @@ export function createUpstashClient(
                 let raw = values.get(sessionKey(item.id));
                 if (typeof raw !== "string" && !item.chunked) {
                   // 老版本把“按字节切片”的会话标成了不切片，这里补一次分片读取
-                  raw = (await this.readValue(sessionKey(item.id), true).catch(
-                    () => null,
-                  )) as any;
+                  raw = (await this.readValue(
+                    sessionKey(item.id),
+                    true,
+                    item.chunks,
+                  ).catch(() => null)) as any;
                 }
                 if (typeof raw !== "string") {
                   fallbackToLocal(item, "missing session payload");
@@ -1676,13 +1754,19 @@ export function createUpstashClient(
           await Promise.all(
             bigItems.map(async (item) => {
               const key = sessionKey(item.id);
-              let raw = await this.readValue(key, item.chunked).catch((e) => {
+              let raw = await this.readValue(
+                key,
+                item.chunked,
+                item.chunks,
+              ).catch((e) => {
                 if (isAbortError(e)) throw e;
                 return null;
               });
               if (!raw && !item.chunked) {
                 // 同上：老索引可能把分片会话标成单 key
-                raw = await this.readValue(key, true).catch(() => null);
+                raw = await this.readValue(key, true, item.chunks).catch(
+                  () => null,
+                );
               }
               if (!raw) {
                 fallbackToLocal(item, "missing session in remote");
@@ -1702,6 +1786,10 @@ export function createUpstashClient(
               reportRead();
             }),
           );
+
+          const sessionReadMs = Date.now() - dataStartedAt;
+          const sessionReadRequests = requestCount - requestsBeforeRead;
+          const storeStartedAt = Date.now();
 
           // stores 一般都小，能合批就合批
           const stores: Record<string, any> = {};
@@ -1786,6 +1874,11 @@ export function createUpstashClient(
               indexReadMs: indexMs,
               localHashMs: hashMs,
               dataMs: Date.now() - startedAt - indexMs - hashMs,
+              // 数据读取的细分：哪个阶段慢、发了多少个请求，一眼就能看出来
+              sessionReadMs,
+              sessionReadRequests,
+              storeReadMs: Date.now() - storeStartedAt,
+              readRequests: requestCount - requestsBeforeRead,
               direct: preferDirect && !forceProxy,
               directCooldownMsLeft: Math.max(
                 0,
